@@ -100,7 +100,7 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
   const snapshot = current?.snapshot ?? null;
   const playerReady = Boolean(snapshot);
   const error = current?.error ?? null;
-  const fallbackUrl = libraryClient.assetUrl(selected?.compatible ? selected.path : null);
+  const fallbackUrl = libraryClient.assetUrl(selected?.path ?? null);
   const posterUrl = libraryClient.assetUrl(selected?.thumbnailPath ?? null);
 
   useEffect(() => {

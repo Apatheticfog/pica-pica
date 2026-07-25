@@ -30,19 +30,20 @@ The local vertical slice is implemented: onboarding → folder scan → game gal
 - Platform-specific [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 - Optional for development: `ffmpeg` and `ffprobe` on `PATH`; release builds bundle vetted binaries
 
-Windows preview builds include libmpv and play local clips directly without creating compatibility copies. This covers HEVC and multiple audio tracks independently of the WebView codecs. Linux currently keeps the browser-compatible fallback player while a native Render API backend is developed.
+Windows preview builds include libmpv and play local clips directly without creating compatibility copies. This covers HEVC and multiple audio tracks independently of the WebView codecs. Linux currently uses WebKitGTK and a GStreamer media framework bundled into the AppImage while a native Render API backend is developed.
 
-The Linux fallback uses WebKitGTK and GStreamer. Install the GStreamer “good” plugins before playing clips:
+Unbundled Linux development builds use the system GStreamer installation. Install its common playback plugins before running `pnpm tauri dev`:
 
 ```bash
 # Arch Linux / CachyOS
-sudo pacman -S gst-plugins-good
+sudo pacman -S gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad
 
 # Debian / Ubuntu
-sudo apt install gstreamer1.0-plugins-good
+sudo apt install gstreamer1.0-libav gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-pulseaudio
 ```
 
-Pica Pica checks for the required audio sink before creating a video element and shows an actionable message instead of letting a missing GStreamer plugin crash the WebView.
+Release AppImages enable Tauri's media-framework bundling so their GStreamer core and plugins stay on the same version across distributions. Pica Pica still checks for the required audio sink before creating a video element and shows an actionable message instead of letting an incomplete runtime crash the WebView.
 
 ## Development
 

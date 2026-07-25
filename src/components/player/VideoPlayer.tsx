@@ -94,13 +94,21 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
   const controlsRef = useRef<HTMLDivElement>(null);
   const [availability, setAvailability] = useState<MpvAvailability | null>(null);
   const [playback, setPlayback] = useState<{ clipId: string; sessionId: number; snapshot: MpvSnapshot | null; error: string | null } | null>(null);
+  const [fallback, setFallback] = useState<{ clipId: string; url: string | null; preparing: boolean; error: string | null } | null>(null);
+  const [htmlVideoFailure, setHtmlVideoFailure] = useState<{ clipId: string; message: string } | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
   const [controlsHeight, setControlsHeight] = useState(80);
   const current = playback?.clipId === selected?.id ? playback : null;
   const snapshot = current?.snapshot ?? null;
   const playerReady = Boolean(snapshot);
   const error = current?.error ?? null;
-  const fallbackUrl = libraryClient.assetUrl(selected?.path ?? null);
+  const directFallbackUrl = libraryClient.assetUrl(selected?.compatible ? selected.path : null);
+  const preparedFallbackUrl = fallback && fallback.clipId === selected?.id ? fallback.url : null;
+  const fallbackUrl = directFallbackUrl ?? preparedFallbackUrl;
+  const fallbackPreparing = Boolean(fallback && fallback.clipId === selected?.id && fallback.preparing);
+  const fallbackError = fallback && fallback.clipId === selected?.id ? fallback.error : null;
+  const htmlVideoError = htmlVideoFailure && htmlVideoFailure.clipId === selected?.id ? htmlVideoFailure.message : null;
+  const playerError = error ?? fallbackError ?? htmlVideoError;
   const posterUrl = libraryClient.assetUrl(selected?.thumbnailPath ?? null);
 
   useEffect(() => {
@@ -117,6 +125,34 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
       }));
     return () => { mounted = false; };
   }, []);
+
+  useEffect(() => {
+    if (!selected || selected.compatible || availability?.available || !availability?.fallbackAvailable) {
+      return;
+    }
+
+    let mounted = true;
+    void Promise.resolve().then(async () => {
+      if (!mounted) return;
+      setFallback({ clipId: selected.id, url: null, preparing: true, error: null });
+      try {
+        const path = await libraryClient.prepareCompatibleClip(selected.id);
+        if (mounted) {
+          setFallback({ clipId: selected.id, url: libraryClient.assetUrl(path), preparing: false, error: null });
+        }
+      } catch (cause) {
+        if (mounted) {
+          setFallback({
+            clipId: selected.id,
+            url: null,
+            preparing: false,
+            error: cause instanceof Error ? cause.message : String(cause),
+          });
+        }
+      }
+    });
+    return () => { mounted = false; };
+  }, [availability?.available, availability?.fallbackAvailable, selected]);
 
   useEffect(() => {
     const surface = surfaceRef.current;
@@ -285,20 +321,30 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
       >
         {!availability ? (
           <div className="absolute inset-0 grid place-items-center"><Spinner className="size-6" /></div>
-        ) : !availability.available && availability.fallbackAvailable && fallbackUrl ? (
-          <ManagedVideo key={fallbackUrl} src={fallbackUrl} poster={posterUrl} />
-        ) : !availability.available || error || !selected ? (
+        ) : !availability.available && availability.fallbackAvailable && fallbackUrl && !htmlVideoError ? (
+          <ManagedVideo
+            key={fallbackUrl}
+            src={fallbackUrl}
+            poster={posterUrl}
+            knownDuration={selected?.durationSeconds ?? null}
+            onError={(message) => selected && setHtmlVideoFailure({ clipId: selected.id, message })}
+          />
+        ) : !availability.available && fallbackPreparing ? (
+          <div className="absolute inset-0 grid place-items-center">
+            <div className="flex items-center gap-3 text-sm text-white/65"><Spinner /> Preparing an H.264 playback copy …</div>
+          </div>
+        ) : !availability.available || playerError || !selected ? (
           <>
             <GameArtwork title={game.title} start={game.accentStart} end={game.accentEnd} variant="hero" className="absolute inset-0 size-full opacity-45" />
             <div className="absolute inset-0 bg-black/60" />
             <div className="absolute inset-0 grid place-items-center px-8 text-center">
               <div className="max-w-lg">
-                {error || !availability.available ? <AlertCircle className="mx-auto size-8 text-amber-300" /> : <MonitorPlay className="mx-auto size-9 text-white/75" />}
+                {playerError || !availability.available ? <AlertCircle className="mx-auto size-8 text-amber-300" /> : <MonitorPlay className="mx-auto size-9 text-white/75" />}
                 <p className="mt-4 text-base font-semibold">
-                  {error ? "libmpv could not play this clip" : selected && !availability.fallbackAvailable ? "Linux video support is incomplete" : selected ? "Embedded libmpv is unavailable" : "Choose a local clip"}
+                  {playerError ? availability.available ? "libmpv could not play this clip" : "Linux could not play this clip" : selected && !availability.fallbackAvailable ? "Linux video support is incomplete" : selected ? "Embedded libmpv is unavailable" : "Choose a local clip"}
                 </p>
                 <p className="mt-2 text-xs leading-5 text-white/50">
-                  {error ?? availability.fallbackDiagnostic ?? availability.diagnostic ?? "The Windows preview includes libmpv for direct local playback."}
+                  {playerError ?? availability.fallbackDiagnostic ?? availability.diagnostic ?? "The Windows preview includes libmpv for direct local playback."}
                 </p>
               </div>
             </div>
@@ -382,13 +428,13 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
   );
 }
 
-function ManagedVideo({ src, poster }: { src: string; poster: string | null }) {
+function ManagedVideo({ src, poster, knownDuration, onError }: { src: string; poster: string | null; knownDuration: number | null; onError: (message: string) => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLVideoElement>(null);
   const resumeWhenVisibleRef = useRef(false);
   const [paused, setPaused] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const [duration, setDuration] = useState(knownDuration ?? 0);
   const [volume, setVolume] = useState(1);
   const [muted, setMuted] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
@@ -459,7 +505,12 @@ function ManagedVideo({ src, poster }: { src: string; poster: string | null }) {
         onPlay={() => setPaused(false)}
         onPause={() => setPaused(true)}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-        onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+        onLoadedMetadata={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : (knownDuration ?? 0))}
+        onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : (knownDuration ?? 0))}
+        onError={(event) => {
+          const code = event.currentTarget.error?.code;
+          onError(`The WebKit video backend rejected the prepared clip${code ? ` (media error ${code})` : ""}.`);
+        }}
         onVolumeChange={(event) => {
           setVolume(event.currentTarget.volume);
           setMuted(event.currentTarget.muted);

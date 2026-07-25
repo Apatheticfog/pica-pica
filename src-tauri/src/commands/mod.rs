@@ -104,6 +104,33 @@ pub fn get_mpv_availability(state: State<'_, AppState>) -> MpvAvailability {
 }
 
 #[tauri::command]
+pub async fn prepare_compatible_clip(
+    clip_id: String,
+    state: State<'_, AppState>,
+) -> AppResult<String> {
+    validate_clip_id(&clip_id)?;
+    let input = state.database.clip_path(&clip_id)?;
+    if !input.is_file() {
+        return Err(AppError::InvalidInput(
+            "The original clip is no longer available.".to_owned(),
+        ));
+    }
+    let output = state
+        .database
+        .cache_path()
+        .join("compatibility")
+        .join(format!("{clip_id}.mp4"));
+    let ffmpeg = state.ffmpeg.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        ffmpeg
+            .compatibility_copy(&input, &output)
+            .map(|path| path.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|error| AppError::Task(error.to_string()))?
+}
+
+#[tauri::command]
 pub async fn mpv_load_clip(
     clip_id: String,
     session_id: u64,

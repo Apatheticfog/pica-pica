@@ -15,6 +15,7 @@ Pica Pica turns local OBS Replay Buffer clips into a fast, private game library.
 - Custom poster and hero overrides copied into the local cache
 - Safe unresolved-game workflow with editable local metadata
 - Embedded libmpv playback on Windows for HEVC, multiple audio tracks, and other OBS formats without conversion
+- Crash-safe Linux playback with bundled GStreamer plugins and cached H.264 compatibility copies for HEVC clips
 - Browser demo adapter for frontend development without private clip data
 - Reduced-motion support, keyboard focus states, and responsive player layout
 
@@ -30,7 +31,7 @@ The local vertical slice is implemented: onboarding → folder scan → game gal
 - Platform-specific [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 - Optional for development: `ffmpeg` and `ffprobe` on `PATH`; release builds bundle vetted binaries
 
-Windows preview builds include libmpv and play local clips directly without creating compatibility copies. This covers HEVC and multiple audio tracks independently of the WebView codecs. Linux currently uses WebKitGTK and a GStreamer media framework bundled into the AppImage while a native Render API backend is developed.
+Windows preview builds include libmpv and play local clips directly without creating compatibility copies. This covers HEVC and multiple audio tracks independently of the WebView codecs. Linux currently uses WebKitGTK and a GStreamer media framework bundled into the AppImage while a native Render API backend is developed. When WebKit cannot play a clip's codec, Pica Pica prepares an H.264/AAC copy in its cache on first playback and reuses it until the original changes.
 
 Unbundled Linux development builds use the system GStreamer installation. Install its common playback plugins before running `pnpm tauri dev`:
 
@@ -43,7 +44,7 @@ sudo apt install gstreamer1.0-libav gstreamer1.0-plugins-base \
   gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-pulseaudio
 ```
 
-Release AppImages enable Tauri's media-framework bundling so their GStreamer core and plugins stay on the same version across distributions. Pica Pica still checks for the required audio sink before creating a video element and shows an actionable message instead of letting an incomplete runtime crash the WebView.
+Release AppImages enable Tauri's media-framework bundling so their GStreamer core and plugins stay on the same version across distributions. Pica Pica checks for the required audio sink before creating a video element and shows an actionable message instead of letting an incomplete runtime crash the WebView. Compatibility conversion can take a few seconds and use additional disk space, but it never changes the original clip.
 
 ## Development
 
@@ -120,6 +121,7 @@ Pica Pica app data/
 ├── library.sqlite
 └── cache/
     ├── artwork/
+    ├── compatibility/
     ├── metadata/
     └── thumbnails/
 ```
@@ -142,7 +144,7 @@ See [docs/scalability.md](docs/scalability.md) for the large-library data flow, 
 
 ## Metadata providers and secrets
 
-The offline catalog remains the zero-configuration fallback. With user-provided keys, RAWG supplies normalized game metadata and SteamGridDB supplies posters and hero artwork. Provider IDs are stored separately so either service can be replaced. Normalized metadata and downloaded artwork are cached locally for offline use.
+The offline catalog remains the zero-configuration fallback. With user-provided keys, RAWG supplies normalized game metadata and SteamGridDB supplies posters and hero artwork. These providers enrich folders that Pica Pica already found; neither provider imports or synchronizes the user's Steam game library. Provider IDs are stored separately so either service can be replaced. Normalized metadata and downloaded artwork are cached locally for offline use.
 
 API keys are never written to SQLite, metadata JSON or the repository. Pica Pica stores them through the operating-system credential service: Windows Credential Manager, macOS Keychain or Linux Secret Service.
 

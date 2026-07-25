@@ -86,6 +86,17 @@ export const libraryClient = {
     return invoke<MpvAvailability>("get_mpv_availability");
   },
 
+  async prepareCompatibleClip(clipId: string): Promise<string> {
+    if (!isTauri()) {
+      const clip = demoLibrary.games
+        .flatMap((game) => demoClipPage(game.id, null, Number.MAX_SAFE_INTEGER).clips)
+        .find((item) => item.id === clipId);
+      if (!clip) throw new Error("The clip was not found.");
+      return clip.path;
+    }
+    return invoke<string>("prepare_compatible_clip", { clipId });
+  },
+
   async mpvLoad(clipId: string, sessionId: number): Promise<MpvSnapshot> {
     return invoke<MpvSnapshot>("mpv_load_clip", { clipId, sessionId });
   },

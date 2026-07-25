@@ -39,7 +39,7 @@ export function GameCard({ game, index }: { game: Game; index: number }) {
           ) : null}
         </div>
         <div className="px-0.5 pb-2 pt-4">
-          <h2 className="truncate text-[15px] font-semibold tracking-[-.015em] text-white">{game.title}</h2>
+          <h3 className="truncate text-[15px] font-semibold tracking-[-.015em] text-white">{game.title}</h3>
           <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <span>{pluralizeClips(game.clipCount)}</span>
             <span aria-hidden="true">·</span>

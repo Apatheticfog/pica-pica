@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from "motion/react";
+import { useEffect } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppError } from "@/components/feedback/AppError";
 import { StartupScreen } from "@/components/feedback/StartupScreen";
@@ -12,6 +13,10 @@ import { SettingsPage } from "@/pages/SettingsPage";
 function AppRoutes() {
   const { bootstrap, loading, error } = useLibrary();
   const location = useLocation();
+
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
 
   if (loading) return <StartupScreen />;
   if (error && !bootstrap) return <AppError message={error} />;

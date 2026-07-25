@@ -29,9 +29,9 @@ Probe, thumbnail, and tool-detection processes have fixed timeouts and are kille
 
 ## Playback
 
-Windows uses libmpv in-process. Rust creates a child Win32 surface inside the Tauri window, passes its handle to libmpv before initialization, and exposes only clip-ID-based playback commands. React measures the reserved player rectangle in physical pixels and keeps the native surface aligned while scrolling or resizing. Controls remain in the WebView immediately below the native video surface because Win32 child windows cannot be composited underneath HTML overlays reliably.
+Windows uses libmpv in-process. Rust creates an input-disabled, non-activating child Win32 surface inside the Tauri window, passes its handle to libmpv before initialization, and disables libmpv's own cursor handling. React measures the reserved player rectangle in physical pixels and keeps the native surface aligned while scrolling or resizing. This keeps wheel, pointer, and focus ownership in the WebView. In windowed playback, controls remain directly below the native surface. Fullscreen keeps the native video at full-window geometry and clips only the temporary control strip from its Win32 region, allowing the shadcn controls to fade over that strip without changing the video's aspect ratio.
 
-libmpv reads the original clip directly, so HEVC and multiple audio tracks do not require large cached conversions. Session identifiers reject stale controls after rapidly switching clips, and the native surface is hidden while it is off-screen or a modal is open. Linux currently uses the browser-compatible fallback; a native Linux implementation will require a platform Render API surface rather than the Windows child-window path.
+libmpv reads the original clip directly, so HEVC and multiple audio tracks do not require large cached conversions. When a clip exposes multiple audio streams, the player builds one mix automatically and leaves playback position untouched; there is no per-clip audio-selection state in React. Session identifiers reject stale controls after rapidly switching clips, and the native surface is hidden while it is off-screen or a modal is open. Linux currently uses the browser-compatible fallback; a native Linux implementation will require a platform Render API surface rather than the Windows child-window path.
 
 ## Metadata
 

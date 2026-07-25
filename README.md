@@ -31,7 +31,7 @@ The local vertical slice is implemented: onboarding → folder scan → game gal
 - Platform-specific [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 - Optional for development: `ffmpeg` and `ffprobe` on `PATH`; release builds bundle vetted binaries
 
-Windows preview builds include libmpv and play local clips directly without creating compatibility copies. This covers HEVC and multiple audio tracks independently of the WebView codecs. Linux currently uses WebKitGTK and a GStreamer media framework bundled into the AppImage while a native Render API backend is developed. When WebKit cannot play a clip's codec, Pica Pica prepares an H.264/AAC copy in its cache on first playback and reuses it until the original changes.
+Windows preview builds include libmpv and play local clips directly without creating compatibility copies. This covers HEVC independently of the WebView codecs and automatically mixes every audio stream in multi-track OBS recordings. Linux currently uses WebKitGTK and a GStreamer media framework bundled into the AppImage while a native Render API backend is developed. When WebKit cannot play a clip's codec, Pica Pica prepares an H.264/AAC copy in its cache on first playback and reuses it until the original changes.
 
 Unbundled Linux development builds use the system GStreamer installation. Install its common playback plugins before running `pnpm tauri dev`:
 

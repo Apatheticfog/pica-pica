@@ -102,9 +102,8 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
   const snapshot = current?.snapshot ?? null;
   const playerReady = Boolean(snapshot);
   const error = current?.error ?? null;
-  const directFallbackUrl = libraryClient.assetUrl(selected?.compatible ? selected.path : null);
   const preparedFallbackUrl = fallback && fallback.clipId === selected?.id ? fallback.url : null;
-  const fallbackUrl = directFallbackUrl ?? preparedFallbackUrl;
+  const fallbackUrl = preparedFallbackUrl;
   const fallbackPreparing = Boolean(fallback && fallback.clipId === selected?.id && fallback.preparing);
   const fallbackError = fallback && fallback.clipId === selected?.id ? fallback.error : null;
   const htmlVideoError = htmlVideoFailure && htmlVideoFailure.clipId === selected?.id ? htmlVideoFailure.message : null;
@@ -127,18 +126,29 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
   }, []);
 
   useEffect(() => {
-    if (!selected || selected.compatible || availability?.available || !availability?.fallbackAvailable) {
+    if (!selected || availability?.available || !availability?.fallbackAvailable) {
       return;
     }
 
     let mounted = true;
+    let objectUrl: string | null = null;
     void Promise.resolve().then(async () => {
       if (!mounted) return;
       setFallback({ clipId: selected.id, url: null, preparing: true, error: null });
       try {
-        const path = await libraryClient.prepareCompatibleClip(selected.id);
+        const path = selected.compatible
+          ? selected.path
+          : await libraryClient.prepareCompatibleClip(selected.id);
+        const assetUrl = libraryClient.assetUrl(path);
+        if (!assetUrl) throw new Error("Pica Pica could not create a local playback URL.");
+        const response = await fetch(assetUrl);
+        if (!response.ok) throw new Error(`Pica Pica could not read the local clip (${response.status}).`);
+        objectUrl = URL.createObjectURL(await response.blob());
         if (mounted) {
-          setFallback({ clipId: selected.id, url: libraryClient.assetUrl(path), preparing: false, error: null });
+          setFallback({ clipId: selected.id, url: objectUrl, preparing: false, error: null });
+        } else {
+          URL.revokeObjectURL(objectUrl);
+          objectUrl = null;
         }
       } catch (cause) {
         if (mounted) {
@@ -151,7 +161,10 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
         }
       }
     });
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
   }, [availability?.available, availability?.fallbackAvailable, selected]);
 
   useEffect(() => {

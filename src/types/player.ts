@@ -12,6 +12,7 @@ export interface MpvViewport {
   visible: boolean;
   cornerRadius: number;
   clipTop: number;
+  clipBottom: number;
 }
 
 export interface MpvAudioTrack {

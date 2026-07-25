@@ -479,7 +479,7 @@ impl MpvService {
                 0,
                 viewport.clip_top.clamp(0, viewport.height),
                 viewport.width + 1,
-                viewport.height + 1,
+                (viewport.height - viewport.clip_bottom.clamp(0, viewport.height)) + 1,
                 viewport.corner_radius * 2,
                 viewport.corner_radius * 2,
             );

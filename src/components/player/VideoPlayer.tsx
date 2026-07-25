@@ -27,12 +27,13 @@ interface VideoPlayerProps {
 export function VideoPlayer({ game, clips, totalCount, selected, hasMore, loadingMore, playerActive = true, onLoadMore, onSelect }: VideoPlayerProps) {
   const otherClips = clips.slice(0, 12);
   const [playerSurfaceHeight, setPlayerSurfaceHeight] = useState<number | null>(null);
+  const aspectRatio = selected?.width && selected.height ? `${selected.width} / ${selected.height}` : "16 / 9";
 
   return (
     <div>
-    <div className={`mx-auto grid w-full max-w-[min(100%,calc(177.78vh+102px))] items-start gap-5 ${otherClips.length ? "xl:grid-cols-[minmax(0,1fr)_clamp(340px,20vw,480px)]" : ""}`}>
+    <div className={`grid w-full items-start gap-5 ${otherClips.length ? "xl:grid-cols-[minmax(0,1fr)_clamp(340px,20vw,480px)]" : ""}`}>
       <div className="min-w-0">
-        <NativeMpvPlayer game={game} selected={selected} active={playerActive} onSurfaceHeight={setPlayerSurfaceHeight} />
+        <NativeMpvPlayer game={game} selected={selected} active={playerActive} aspectRatio={aspectRatio} onSurfaceHeight={setPlayerSurfaceHeight} />
         {selected ? (
           <div className="mt-5 flex flex-col justify-between gap-4 px-1 sm:flex-row sm:items-start">
             <div className="min-w-0">
@@ -88,11 +89,13 @@ export function VideoPlayer({ game, clips, totalCount, selected, hasMore, loadin
   );
 }
 
-function NativeMpvPlayer({ game, selected, active, onSurfaceHeight }: { game: Game; selected: Clip | null; active: boolean; onSurfaceHeight: (height: number) => void }) {
+function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight }: { game: Game; selected: Clip | null; active: boolean; aspectRatio: string; onSurfaceHeight: (height: number) => void }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
   const [availability, setAvailability] = useState<MpvAvailability | null>(null);
   const [playback, setPlayback] = useState<{ clipId: string; sessionId: number; snapshot: MpvSnapshot | null; error: string | null } | null>(null);
   const [fullscreen, setFullscreen] = useState(false);
+  const [controlsHeight, setControlsHeight] = useState(80);
   const current = playback?.clipId === selected?.id ? playback : null;
   const snapshot = current?.snapshot ?? null;
   const playerReady = Boolean(snapshot);
@@ -118,6 +121,16 @@ function NativeMpvPlayer({ game, selected, active, onSurfaceHeight }: { game: Ga
     reportHeight();
     return () => observer.disconnect();
   }, [onSurfaceHeight]);
+
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    const reportHeight = () => setControlsHeight(Math.ceil(controls.getBoundingClientRect().height));
+    const observer = new ResizeObserver(reportHeight);
+    observer.observe(controls);
+    reportHeight();
+    return () => observer.disconnect();
+  }, [availability?.available]);
 
   useEffect(() => {
     if (!selected || !availability?.available) return;
@@ -189,15 +202,15 @@ function NativeMpvPlayer({ game, selected, active, onSurfaceHeight }: { game: Ga
         const visibleRight = Math.min(rect.right, window.innerWidth);
         const visibleBottom = Math.min(rect.bottom, window.innerHeight);
         const visibleArea = Math.max(0, visibleRight - visibleLeft) * Math.max(0, visibleBottom - visibleTop);
-        const visibleRatio = visibleArea / Math.max(1, rect.width * rect.height);
         void libraryClient.mpvViewport({
           x: Math.round(rect.left * scale),
           y: Math.round(rect.top * scale),
           width: Math.round(rect.width * scale),
           height: Math.round(rect.height * scale),
-          visible: active && (fullscreen || visibleRatio >= 0.18),
+          visible: active && (fullscreen || visibleArea > 0),
           cornerRadius: fullscreen ? 0 : Math.round(22 * scale),
           clipTop: fullscreen ? 0 : Math.round(Math.max(0, 69 - rect.top) * scale),
+          clipBottom: fullscreen ? Math.round(controlsHeight * scale) : 0,
         }).catch(() => undefined);
       });
     };
@@ -218,9 +231,9 @@ function NativeMpvPlayer({ game, selected, active, onSurfaceHeight }: { game: Ga
       window.removeEventListener("resize", update);
       window.visualViewport?.removeEventListener("resize", update);
       window.visualViewport?.removeEventListener("scroll", update);
-      void libraryClient.mpvViewport({ x: 0, y: 0, width: 0, height: 0, visible: false, cornerRadius: 0, clipTop: 0 }).catch(() => undefined);
+      void libraryClient.mpvViewport({ x: 0, y: 0, width: 0, height: 0, visible: false, cornerRadius: 0, clipTop: 0, clipBottom: 0 }).catch(() => undefined);
     };
-  }, [active, availability?.available, current?.sessionId, fullscreen, onSurfaceHeight, playerReady]);
+  }, [active, availability?.available, controlsHeight, current?.sessionId, fullscreen, onSurfaceHeight, playerReady]);
 
   const updateSnapshot = (operation: Promise<MpvSnapshot>) => {
     const sessionId = current?.sessionId;
@@ -255,10 +268,15 @@ function NativeMpvPlayer({ game, selected, active, onSurfaceHeight }: { game: Ga
 
   return (
     <div>
-      <div ref={surfaceRef} data-player-surface className={cn(
-        "relative aspect-video overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#050506] shadow-[0_24px_80px_rgba(0,0,0,.35)]",
-        fullscreen && "fixed bottom-20 left-0 right-0 top-0 z-[100] aspect-auto rounded-none border-0 shadow-none",
-      )}>
+      <div
+        ref={surfaceRef}
+        data-player-surface
+        style={{ aspectRatio: fullscreen ? "auto" : aspectRatio }}
+        className={cn(
+          "relative overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#050506] shadow-[0_24px_80px_rgba(0,0,0,.35)]",
+          fullscreen && "fixed inset-0 z-[100] rounded-none border-0 shadow-none",
+        )}
+      >
         {!availability ? (
           <div className="absolute inset-0 grid place-items-center"><Spinner className="size-6" /></div>
         ) : !availability.available && fallbackUrl ? (
@@ -281,9 +299,9 @@ function NativeMpvPlayer({ game, selected, active, onSurfaceHeight }: { game: Ga
       </div>
 
       {availability?.available ? (
-        <div className={cn(
+        <div ref={controlsRef} className={cn(
           "mt-3 flex min-h-16 flex-col gap-3 rounded-2xl border border-white/[.08] bg-white/[.025] p-3 sm:flex-row sm:items-center",
-          fullscreen && "fixed inset-x-0 bottom-0 z-[101] m-0 min-h-20 rounded-none border-x-0 border-b-0 bg-black px-5",
+          fullscreen && "fixed inset-x-0 bottom-0 z-[101] m-0 min-h-20 rounded-none border-x-0 border-b-0 bg-background/35 px-5 backdrop-blur-xl",
         )}>
           {snapshot ? <>
           <Button
@@ -355,27 +373,149 @@ function NativeMpvPlayer({ game, selected, active, onSurfaceHeight }: { game: Ga
 }
 
 function ManagedVideo({ src, poster }: { src: string; poster: string | null }) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const ref = useRef<HTMLVideoElement>(null);
+  const resumeWhenVisibleRef = useRef(false);
+  const [paused, setPaused] = useState(true);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [suspended, setSuspended] = useState(false);
 
   useEffect(() => {
     const video = ref.current;
+    const container = containerRef.current;
+    if (!video || !container) return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      const root = entry.rootBounds;
+      const rect = entry.boundingClientRect;
+      const completelyOutside = root
+        ? rect.bottom <= root.top || rect.top >= root.bottom || rect.right <= root.left || rect.left >= root.right
+        : !entry.isIntersecting;
+
+      if (completelyOutside) {
+        resumeWhenVisibleRef.current = !video.paused;
+        setSuspended(true);
+        video.pause();
+      } else {
+        setSuspended(false);
+        if (resumeWhenVisibleRef.current) {
+          resumeWhenVisibleRef.current = false;
+          void video.play().catch(() => undefined);
+        }
+      }
+    }, { threshold: [0, 0.001] });
+    observer.observe(container);
+
+    const onFullscreenChange = () => setFullscreen(document.fullscreenElement === container);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+
     return () => {
-      if (!video) return;
+      observer.disconnect();
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
       video.pause();
       video.removeAttribute("src");
       video.load();
     };
   }, [src]);
 
+  const togglePlayback = () => {
+    const video = ref.current;
+    if (!video) return;
+    if (video.paused) void video.play().catch(() => undefined);
+    else video.pause();
+  };
+
+  const toggleFullscreen = () => {
+    const container = containerRef.current;
+    if (!container) return;
+    if (document.fullscreenElement) void document.exitFullscreen();
+    else void container.requestFullscreen();
+  };
+
   return (
-    <video
-      ref={ref}
-      src={src}
-      poster={poster ?? undefined}
-      preload="metadata"
-      controls
-      autoPlay
-      className="size-full bg-black object-contain"
-    />
+    <div ref={containerRef} className="group/html-video absolute inset-0 isolate overflow-hidden bg-black">
+      {poster ? <img src={poster} alt="" className="absolute inset-0 size-full object-contain" /> : null}
+      <video
+        ref={ref}
+        src={src}
+        poster={poster ?? undefined}
+        preload="metadata"
+        autoPlay
+        onClick={togglePlayback}
+        onPlay={() => setPaused(false)}
+        onPause={() => setPaused(true)}
+        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onDurationChange={(event) => setDuration(Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : 0)}
+        onVolumeChange={(event) => {
+          setVolume(event.currentTarget.volume);
+          setMuted(event.currentTarget.muted);
+        }}
+        className={cn(
+          "relative z-10 size-full cursor-pointer bg-transparent object-contain transform-gpu [backface-visibility:hidden]",
+          suspended && "invisible",
+        )}
+      />
+      <div className="absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/55 via-black/15 to-transparent px-3 pb-3 pt-12 sm:px-4">
+        <input
+          aria-label="Playback position"
+          type="range"
+          min={0}
+          max={Math.max(duration, 1)}
+          step={0.1}
+          value={Math.min(currentTime, duration || 0)}
+          onChange={(event) => {
+            const next = Number(event.target.value);
+            if (ref.current) ref.current.currentTime = next;
+            setCurrentTime(next);
+          }}
+          className="video-control-range w-full"
+        />
+        <div className="mt-1 flex items-center gap-2">
+          <Button type="button" size="icon" variant="ghost" className="shrink-0 bg-transparent text-white opacity-100 hover:bg-white/10" aria-label={paused ? "Play" : "Pause"} onClick={togglePlayback}>
+            {paused ? <Play className="size-4" /> : <Pause className="size-4" />}
+          </Button>
+          <span className="shrink-0 text-xs tabular-nums text-white/85">
+            {formatDuration(currentTime)} / {formatDuration(duration)}
+          </span>
+          <div className="min-w-2 flex-1" />
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="shrink-0 bg-transparent text-white opacity-100 hover:bg-white/10"
+            aria-label={muted ? "Unmute" : "Mute"}
+            onClick={() => {
+              if (ref.current) ref.current.muted = !ref.current.muted;
+            }}
+          >
+            {muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
+          </Button>
+          <input
+            aria-label="Volume"
+            type="range"
+            min={0}
+            max={1}
+            step={0.05}
+            value={volume}
+            onChange={(event) => {
+              const next = Number(event.target.value);
+              if (ref.current) {
+                ref.current.volume = next;
+                ref.current.muted = false;
+              }
+              setVolume(next);
+            }}
+            className="video-control-range hidden w-20 sm:block"
+          />
+          <Button type="button" size="icon" variant="ghost" className="shrink-0 bg-transparent text-white opacity-100 hover:bg-white/10" aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"} onClick={toggleFullscreen}>
+            {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }

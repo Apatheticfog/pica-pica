@@ -88,6 +88,45 @@ button, a { -webkit-tap-highlight-color: transparent; }
   contain-intrinsic-size: auto 18rem;
 }
 
+.video-control-range {
+  height: 1rem;
+  cursor: pointer;
+  appearance: none;
+  background: transparent;
+}
+
+.video-control-range::-webkit-slider-runnable-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.video-control-range::-webkit-slider-thumb {
+  width: 0.85rem;
+  height: 0.85rem;
+  margin-top: -0.3rem;
+  appearance: none;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+.video-control-range::-moz-range-track {
+  height: 0.25rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.video-control-range::-moz-range-thumb {
+  width: 0.65rem;
+  height: 0.65rem;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;

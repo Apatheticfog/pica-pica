@@ -169,7 +169,7 @@ impl OnlineMetadataService {
             .map_err(|error| AppError::Network(error.to_string()))?;
         std::fs::write(cache_file, encoded)?;
 
-        let mut artwork = self.steam_grid_artwork(&details.name).unwrap_or_default();
+        let mut artwork = self.steam_grid_artwork(&details.name)?;
         if artwork.hero_path.is_none()
             && let Some(url) = details.background_image.as_deref()
         {
@@ -201,12 +201,10 @@ impl OnlineMetadataService {
     }
 
     fn steam_grid_artwork(&self, title: &str) -> AppResult<ArtworkMatch> {
-        let key = self.require_key(ProviderKey::SteamGridDb, "SteamGridDB")?;
-        let mut url = Url::parse("https://www.steamgriddb.com/api/v2/search/autocomplete/")
-            .map_err(network_error)?;
-        url.path_segments_mut()
-            .map_err(|_| AppError::Network("The SteamGridDB URL is invalid.".to_owned()))?
-            .push(title);
+        let Some(key) = self.secrets.read(ProviderKey::SteamGridDb) else {
+            return Ok(ArtworkMatch::default());
+        };
+        let url = steam_grid_search_url(title)?;
         let response = self
             .steam_grid_get(url, &key)?
             .json::<SteamGridResponse<SteamGridGame>>()
@@ -344,6 +342,15 @@ fn allowed_artwork_host(host: &str) -> bool {
         .any(|allowed| host == *allowed || host.ends_with(&format!(".{allowed}")))
 }
 
+fn steam_grid_search_url(title: &str) -> AppResult<Url> {
+    let mut url = Url::parse("https://www.steamgriddb.com/api/v2/search/autocomplete")
+        .map_err(network_error)?;
+    url.path_segments_mut()
+        .map_err(|_| AppError::Network("The SteamGridDB URL is invalid.".to_owned()))?
+        .push(title);
+    Ok(url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,5 +367,16 @@ mod tests {
         assert!(allowed_artwork_host("media.rawg.io"));
         assert!(!allowed_artwork_host("steamgriddb.com.example.org"));
         assert!(!allowed_artwork_host("127.0.0.1"));
+    }
+
+    #[test]
+    fn steam_grid_search_path_has_one_separator_and_encodes_the_title() {
+        let url = steam_grid_search_url("Fortnite Battle Royale").expect("SteamGridDB URL");
+
+        assert_eq!(
+            url.as_str(),
+            "https://www.steamgriddb.com/api/v2/search/autocomplete/Fortnite%20Battle%20Royale"
+        );
+        assert!(!url.path().contains("//"));
     }
 }

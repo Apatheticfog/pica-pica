@@ -74,7 +74,15 @@ export const libraryClient = {
   },
 
   async mpvAvailability(): Promise<MpvAvailability> {
-    if (!isTauri()) return { available: false, version: null, diagnostic: "Embedded libmpv is available in the Windows desktop build." };
+    if (!isTauri()) {
+      return {
+        available: false,
+        version: null,
+        diagnostic: "Embedded libmpv is available in the Windows desktop build.",
+        fallbackAvailable: true,
+        fallbackDiagnostic: null,
+      };
+    }
     return invoke<MpvAvailability>("get_mpv_availability");
   },
 

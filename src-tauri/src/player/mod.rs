@@ -3,6 +3,8 @@ use crate::errors::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
 #[cfg(not(windows))]
 use std::path::{Path, PathBuf};
+#[cfg(not(windows))]
+use std::process::{Command, Stdio};
 
 #[cfg(windows)]
 mod windows;
@@ -13,6 +15,8 @@ pub struct MpvAvailability {
     pub available: bool,
     pub version: Option<String>,
     pub diagnostic: Option<String>,
+    pub fallback_available: bool,
+    pub fallback_diagnostic: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -73,12 +77,24 @@ impl MpvService {
     }
 
     pub fn availability(&self) -> MpvAvailability {
+        let fallback_available = Command::new("gst-inspect-1.0")
+            .arg("autoaudiosink")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+
         MpvAvailability {
             available: false,
             version: None,
             diagnostic: Some(
                 "Embedded libmpv is currently available in Windows preview builds.".to_owned(),
             ),
+            fallback_available,
+            fallback_diagnostic: (!fallback_available).then(|| {
+                "Linux video playback needs the GStreamer “good” plugins. Install them and restart Pica Pica (Arch/CachyOS: sudo pacman -S gst-plugins-good; Debian/Ubuntu: sudo apt install gstreamer1.0-plugins-good).".to_owned()
+            }),
         }
     }
 

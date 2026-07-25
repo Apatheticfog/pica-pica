@@ -2,6 +2,8 @@ export interface MpvAvailability {
   available: boolean;
   version: string | null;
   diagnostic: string | null;
+  fallbackAvailable: boolean;
+  fallbackDiagnostic: string | null;
 }
 
 export interface MpvViewport {

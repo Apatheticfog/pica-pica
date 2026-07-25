@@ -32,6 +32,18 @@ The local vertical slice is implemented: onboarding → folder scan → game gal
 
 Windows preview builds include libmpv and play local clips directly without creating compatibility copies. This covers HEVC and multiple audio tracks independently of the WebView codecs. Linux currently keeps the browser-compatible fallback player while a native Render API backend is developed.
 
+The Linux fallback uses WebKitGTK and GStreamer. Install the GStreamer “good” plugins before playing clips:
+
+```bash
+# Arch Linux / CachyOS
+sudo pacman -S gst-plugins-good
+
+# Debian / Ubuntu
+sudo apt install gstreamer1.0-plugins-good
+```
+
+Pica Pica checks for the required audio sink before creating a video element and shows an actionable message instead of letting a missing GStreamer plugin crash the WebView.
+
 ## Development
 
 ```bash

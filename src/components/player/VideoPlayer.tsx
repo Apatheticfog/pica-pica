@@ -108,7 +108,13 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
     void libraryClient
       .mpvAvailability()
       .then((result) => mounted && setAvailability(result))
-      .catch((cause) => mounted && setAvailability({ available: false, version: null, diagnostic: cause instanceof Error ? cause.message : String(cause) }));
+      .catch((cause) => mounted && setAvailability({
+        available: false,
+        version: null,
+        diagnostic: cause instanceof Error ? cause.message : String(cause),
+        fallbackAvailable: false,
+        fallbackDiagnostic: "Pica Pica could not verify the Linux video runtime.",
+      }));
     return () => { mounted = false; };
   }, []);
 
@@ -279,7 +285,7 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
       >
         {!availability ? (
           <div className="absolute inset-0 grid place-items-center"><Spinner className="size-6" /></div>
-        ) : !availability.available && fallbackUrl ? (
+        ) : !availability.available && availability.fallbackAvailable && fallbackUrl ? (
           <ManagedVideo key={fallbackUrl} src={fallbackUrl} poster={posterUrl} />
         ) : !availability.available || error || !selected ? (
           <>
@@ -288,8 +294,12 @@ function NativeMpvPlayer({ game, selected, active, aspectRatio, onSurfaceHeight 
             <div className="absolute inset-0 grid place-items-center px-8 text-center">
               <div className="max-w-lg">
                 {error || !availability.available ? <AlertCircle className="mx-auto size-8 text-amber-300" /> : <MonitorPlay className="mx-auto size-9 text-white/75" />}
-                <p className="mt-4 text-base font-semibold">{error ? "libmpv could not play this clip" : selected ? "Embedded libmpv is unavailable" : "Choose a local clip"}</p>
-                <p className="mt-2 text-xs leading-5 text-white/50">{error ?? availability.diagnostic ?? "The Windows preview includes libmpv for direct local playback."}</p>
+                <p className="mt-4 text-base font-semibold">
+                  {error ? "libmpv could not play this clip" : selected && !availability.fallbackAvailable ? "Linux video support is incomplete" : selected ? "Embedded libmpv is unavailable" : "Choose a local clip"}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-white/50">
+                  {error ?? availability.fallbackDiagnostic ?? availability.diagnostic ?? "The Windows preview includes libmpv for direct local playback."}
+                </p>
               </div>
             </div>
           </>

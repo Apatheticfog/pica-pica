@@ -426,6 +426,8 @@ impl MpvService {
                 available: true,
                 version: Some(player.api.version()),
                 diagnostic: None,
+                fallback_available: true,
+                fallback_diagnostic: None,
             };
         }
         match self.load_api() {
@@ -433,11 +435,15 @@ impl MpvService {
                 available: true,
                 version: Some(api.version()),
                 diagnostic: None,
+                fallback_available: true,
+                fallback_diagnostic: None,
             },
             Err(diagnostic) => MpvAvailability {
                 available: false,
                 version: None,
                 diagnostic: Some(diagnostic),
+                fallback_available: true,
+                fallback_diagnostic: None,
             },
         }
     }

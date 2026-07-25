@@ -102,7 +102,7 @@ export function SettingsPage() {
           <CardHeader>
             <div className="flex items-center gap-3">
               <div className="grid size-10 place-items-center rounded-xl bg-muted"><KeyRound className="size-4" /></div>
-              <div><CardTitle>Online metadata</CardTitle><CardDescription>Optional and only used for manual searches.</CardDescription></div>
+              <div><CardTitle>Online metadata</CardTitle><CardDescription>Optional game matching and artwork. These providers do not import your Steam library.</CardDescription></div>
             </div>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -113,8 +113,8 @@ export function SettingsPage() {
               onChange={setRawgKey}
               saving={saving === "rawg"}
               onSubmit={(event) => void saveKey(event, "rawg")}
-              onOpenHelp={() => void openProviderPage("https://rawg.io/login?forward=developer")}
-              helpUrl="https://rawg.io/login?forward=developer"
+              onOpenHelp={() => void openProviderPage("https://rawg.io/apidocs")}
+              helpUrl="https://rawg.io/apidocs"
             />
             <Separator />
             <ProviderKeyForm

@@ -30,7 +30,7 @@ The local vertical slice is implemented: onboarding → folder scan → game gal
 - Platform-specific [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 - Optional for development: `ffmpeg` and `ffprobe` on `PATH`; release builds bundle vetted binaries
 
-Windows preview builds include libmpv and play local clips directly without creating compatibility copies. This covers HEVC and multiple audio tracks independently of the WebView codecs. Linux currently keeps the browser-compatible fallback player while a native Render API backend is developed.
+Windows preview builds include libmpv and play local clips directly without creating compatibility copies. This covers HEVC independently of the WebView codecs and automatically mixes every audio stream in multi-track OBS recordings. Linux currently keeps the browser-compatible fallback player while a native Render API backend is developed.
 
 ## Development
 

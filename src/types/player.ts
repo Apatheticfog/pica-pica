@@ -12,15 +12,12 @@ export interface MpvViewport {
   visible: boolean;
   cornerRadius: number;
   clipTop: number;
-}
-
-export interface MpvAudioTrack {
-  id: number;
-  title: string | null;
-  language: string | null;
-  codec: string | null;
-  channels: string | null;
-  selected: boolean;
+  clipBottom: number;
+  overlayX: number;
+  overlayY: number;
+  overlayWidth: number;
+  overlayHeight: number;
+  overlayRadius: number;
 }
 
 export interface MpvSnapshot {
@@ -29,8 +26,9 @@ export interface MpvSnapshot {
   positionSeconds: number;
   durationSeconds: number | null;
   paused: boolean;
+  seeking: boolean;
   volume: number;
   muted: boolean;
-  audioTracks: MpvAudioTrack[];
+  mediaReady: boolean;
   error: string | null;
 }

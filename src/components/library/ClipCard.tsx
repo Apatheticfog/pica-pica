@@ -17,14 +17,16 @@ export function ClipCard({ clip, game, active, onSelect }: ClipCardProps) {
     <button
       type="button"
       onClick={onSelect}
+      aria-label={`Play ${clip.fileName}`}
+      aria-pressed={active}
       className={cn(
-        "clip-card group w-full rounded-2xl border p-2 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-primary/70",
+        "clip-card group w-full overflow-hidden rounded-2xl border p-0 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-primary/70",
         active ? "border-primary/35 bg-primary/[.07]" : "border-transparent bg-white/[.025] hover:border-white/10 hover:bg-white/[.055]",
       )}
     >
-      <div className="relative aspect-video overflow-hidden rounded-xl bg-muted">
+      <div className="relative aspect-video w-full overflow-hidden bg-black">
         {thumbnail ? (
-          <img src={thumbnail} alt="" loading="lazy" decoding="async" className="size-full object-cover transition duration-500 group-hover:scale-[1.03]" />
+          <img src={thumbnail} alt="" loading="lazy" decoding="async" className="absolute inset-0 size-full object-cover transition duration-500 group-hover:scale-[1.03]" />
         ) : (
           <GameArtwork title={game.title} start={game.accentStart} end={game.accentEnd} variant="thumbnail" className="size-full" />
         )}
@@ -36,7 +38,7 @@ export function ClipCard({ clip, game, active, onSelect }: ClipCardProps) {
           <Play className="ml-0.5 size-4 fill-current" />
         </span>
       </div>
-      <div className="min-w-0 px-1 pb-1 pt-3">
+      <div className="min-w-0 px-3 pb-3 pt-3">
         <p className="truncate text-[13px] font-medium text-white">{clip.fileName}</p>
         <p className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <span>{formatDate(clip.createdAt, true)}</span>

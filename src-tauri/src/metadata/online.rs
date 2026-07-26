@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const MAX_ARTWORK_BYTES: usize = 25 * 1024 * 1024;
+const STEAM_GRID_POSTER_DIMENSIONS: &str = "660x930,600x900";
+const STEAM_GRID_POSTER_FALLBACK_DIMENSIONS: &str = "342x482";
+const STEAM_GRID_HERO_DIMENSIONS: &str = "3840x1240,1920x620,1600x650";
 
 #[derive(Debug, Clone)]
 pub struct OnlineMetadataService {
@@ -244,10 +247,35 @@ impl OnlineMetadataService {
     }
 
     fn steam_grid_asset(&self, kind: &str, game_id: u64, key: &str) -> AppResult<Option<String>> {
-        let url = Url::parse(&format!(
-            "https://www.steamgriddb.com/api/v2/{kind}/game/{game_id}?types=static"
-        ))
-        .map_err(network_error)?;
+        let dimensions = match kind {
+            "grids" => STEAM_GRID_POSTER_DIMENSIONS,
+            "heroes" => STEAM_GRID_HERO_DIMENSIONS,
+            _ => {
+                return Err(AppError::InvalidInput(
+                    "Unsupported SteamGridDB artwork type.".to_owned(),
+                ));
+            }
+        };
+        let asset = self.steam_grid_asset_with_dimensions(kind, game_id, key, dimensions)?;
+        if asset.is_some() || kind != "grids" {
+            return Ok(asset);
+        }
+        self.steam_grid_asset_with_dimensions(
+            kind,
+            game_id,
+            key,
+            STEAM_GRID_POSTER_FALLBACK_DIMENSIONS,
+        )
+    }
+
+    fn steam_grid_asset_with_dimensions(
+        &self,
+        kind: &str,
+        game_id: u64,
+        key: &str,
+        dimensions: &str,
+    ) -> AppResult<Option<String>> {
+        let url = steam_grid_asset_url(kind, game_id, dimensions)?;
         let response = self
             .steam_grid_get(url, key)?
             .json::<SteamGridResponse<SteamGridAsset>>()
@@ -344,6 +372,22 @@ fn allowed_artwork_host(host: &str) -> bool {
         .any(|allowed| host == *allowed || host.ends_with(&format!(".{allowed}")))
 }
 
+fn steam_grid_asset_url(kind: &str, game_id: u64, dimensions: &str) -> AppResult<Url> {
+    if !matches!(kind, "grids" | "heroes") {
+        return Err(AppError::InvalidInput(
+            "Unsupported SteamGridDB artwork type.".to_owned(),
+        ));
+    }
+    let mut url = Url::parse(&format!(
+        "https://www.steamgriddb.com/api/v2/{kind}/game/{game_id}"
+    ))
+    .map_err(network_error)?;
+    url.query_pairs_mut()
+        .append_pair("types", "static")
+        .append_pair("dimensions", dimensions);
+    Ok(url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,5 +404,45 @@ mod tests {
         assert!(allowed_artwork_host("media.rawg.io"));
         assert!(!allowed_artwork_host("steamgriddb.com.example.org"));
         assert!(!allowed_artwork_host("127.0.0.1"));
+    }
+
+    #[test]
+    fn steam_grid_asset_urls_request_high_resolution_static_artwork() {
+        let poster_url = steam_grid_asset_url("grids", 42, STEAM_GRID_POSTER_DIMENSIONS).unwrap();
+        assert_eq!(poster_url.path(), "/api/v2/grids/game/42");
+        assert_eq!(
+            poster_url
+                .query_pairs()
+                .find(|(key, _)| key == "types")
+                .map(|(_, value)| value.into_owned()),
+            Some("static".to_owned())
+        );
+        assert_eq!(
+            poster_url
+                .query_pairs()
+                .find(|(key, _)| key == "dimensions")
+                .map(|(_, value)| value.into_owned()),
+            Some(STEAM_GRID_POSTER_DIMENSIONS.to_owned())
+        );
+
+        let fallback_url =
+            steam_grid_asset_url("grids", 42, STEAM_GRID_POSTER_FALLBACK_DIMENSIONS).unwrap();
+        assert_eq!(
+            fallback_url
+                .query_pairs()
+                .find(|(key, _)| key == "dimensions")
+                .map(|(_, value)| value.into_owned()),
+            Some(STEAM_GRID_POSTER_FALLBACK_DIMENSIONS.to_owned())
+        );
+
+        let hero_url = steam_grid_asset_url("heroes", 7, STEAM_GRID_HERO_DIMENSIONS).unwrap();
+        assert_eq!(hero_url.path(), "/api/v2/heroes/game/7");
+        assert_eq!(
+            hero_url
+                .query_pairs()
+                .find(|(key, _)| key == "dimensions")
+                .map(|(_, value)| value.into_owned()),
+            Some(STEAM_GRID_HERO_DIMENSIONS.to_owned())
+        );
     }
 }

@@ -30,7 +30,7 @@ export function formatBytes(bytes: number): string {
 
 export function formatDate(timestamp: number | null, includeTime = false): string {
   if (!timestamp) return "No clips yet";
-  return new Intl.DateTimeFormat("de-DE", {
+  return new Intl.DateTimeFormat("en-GB", {
     day: "2-digit",
     month: "short",
     year: "numeric",

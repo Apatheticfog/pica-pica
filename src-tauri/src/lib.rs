@@ -9,9 +9,9 @@ mod video;
 
 use commands::{
     AppState, apply_game_metadata, configure_library, get_bootstrap, get_game_clips, get_library,
-    get_mpv_availability, get_mpv_snapshot, get_provider_settings, mpv_load_clip, mpv_seek,
-    mpv_select_audio_tracks, mpv_set_muted, mpv_set_paused, mpv_set_viewport, mpv_set_volume,
-    mpv_stop, save_provider_api_key, scan_library, search_game_metadata, set_custom_artwork,
+    get_mpv_availability, get_mpv_snapshot, get_provider_settings, mpv_load_clip, mpv_preview_seek,
+    mpv_seek, mpv_set_muted, mpv_set_paused, mpv_set_viewport, mpv_set_volume, mpv_stop,
+    save_provider_api_key, scan_library, search_game_metadata, set_custom_artwork,
     update_game_metadata,
 };
 use database::Database;
@@ -58,10 +58,10 @@ pub fn run() {
             mpv_set_viewport,
             get_mpv_snapshot,
             mpv_set_paused,
+            mpv_preview_seek,
             mpv_seek,
             mpv_set_volume,
             mpv_set_muted,
-            mpv_select_audio_tracks,
             mpv_stop,
             update_game_metadata,
             get_provider_settings,

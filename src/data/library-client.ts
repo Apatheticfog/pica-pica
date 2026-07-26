@@ -99,16 +99,16 @@ export const libraryClient = {
     return invoke<MpvSnapshot>("mpv_seek", { sessionId, seconds });
   },
 
+  async mpvPreviewSeek(sessionId: number, seconds: number): Promise<void> {
+    return invoke<void>("mpv_preview_seek", { sessionId, seconds });
+  },
+
   async mpvVolume(sessionId: number, volume: number): Promise<MpvSnapshot> {
     return invoke<MpvSnapshot>("mpv_set_volume", { sessionId, volume });
   },
 
   async mpvMuted(sessionId: number, muted: boolean): Promise<MpvSnapshot> {
     return invoke<MpvSnapshot>("mpv_set_muted", { sessionId, muted });
-  },
-
-  async mpvAudioTracks(sessionId: number, trackIds: number[]): Promise<MpvSnapshot> {
-    return invoke<MpvSnapshot>("mpv_select_audio_tracks", { sessionId, trackIds });
   },
 
   async mpvStop(sessionId: number): Promise<void> {

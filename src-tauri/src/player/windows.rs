@@ -1,4 +1,4 @@
-use super::{MpvAudioTrack, MpvAvailability, MpvSnapshot, MpvViewport};
+use super::{MpvAvailability, MpvSnapshot, MpvViewport};
 use crate::errors::{AppError, AppResult};
 use libloading::Library;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
@@ -7,11 +7,14 @@ use std::ptr;
 use std::sync::{Arc, Mutex};
 use tauri::WebviewWindow;
 use windows::Win32::Foundation::{HINSTANCE, HWND};
-use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn};
+use windows::Win32::Graphics::Gdi::{
+    CombineRgn, CreateRectRgn, CreateRoundRectRgn, DeleteObject, RGN_DIFF, SetWindowRgn,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, HWND_TOP, SW_HIDE, SW_SHOW, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_SHOWWINDOW,
-    SetWindowPos, ShowWindow, WINDOW_EX_STYLE, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS,
+    SetWindowPos, ShowWindow, WS_CHILD, WS_CLIPCHILDREN, WS_CLIPSIBLINGS, WS_DISABLED,
+    WS_EX_NOACTIVATE,
 };
 use windows::core::w;
 
@@ -50,7 +53,6 @@ struct MpvApi {
     mpv_free: MpvFree,
     terminate_destroy: TerminateDestroy,
 }
-
 unsafe impl Send for MpvApi {}
 
 impl MpvApi {
@@ -117,7 +119,8 @@ struct Player {
     host: HWND,
     session_id: u64,
     status: String,
-    mixed_audio_tracks: Vec<i64>,
+    session_path: Option<String>,
+    pending_audio_path: Option<String>,
 }
 
 unsafe impl Send for Player {}
@@ -134,7 +137,8 @@ impl Player {
             host,
             session_id: 0,
             status: "idle".to_owned(),
-            mixed_audio_tracks: Vec::new(),
+            session_path: None,
+            pending_audio_path: None,
         };
         let wid = host.0 as usize as u32;
         for (name, value) in [
@@ -143,7 +147,10 @@ impl Player {
             ("keep-open", "yes".to_owned()),
             ("osc", "no".to_owned()),
             ("input-default-bindings", "no".to_owned()),
+            ("input-cursor", "no".to_owned()),
+            ("cursor-autohide", "no".to_owned()),
             ("input-vo-keyboard", "no".to_owned()),
+            ("resume-playback", "no".to_owned()),
             ("terminal", "no".to_owned()),
         ] {
             player.set_option(name, &value)?;
@@ -185,11 +192,15 @@ impl Player {
     }
 
     fn load(&mut self, path: &Path, session_id: u64) -> Result<(), String> {
-        let path = path.to_string_lossy();
+        let path = path.to_string_lossy().into_owned();
         self.session_id = session_id;
         self.status = "loading".to_owned();
-        self.mixed_audio_tracks.clear();
-        self.command(&["loadfile", &path, "replace"])
+        self.session_path = Some(path.clone());
+        self.pending_audio_path = Some(path.clone());
+        self.set_flag("pause", true)?;
+        self.set_string("lavfi-complex", "")?;
+        self.set_string("aid", "auto")?;
+        self.command(&["loadfile", &path, "replace", "-1", "start=0"])
     }
 
     fn get_double(&self, name: &str) -> Option<f64> {
@@ -289,61 +300,56 @@ impl Player {
             .ok_or_else(|| self.api.error(code))
     }
 
-    fn snapshot(&mut self) -> MpvSnapshot {
-        let position_seconds = self.get_double("time-pos").unwrap_or_default();
-        let duration_seconds = self.get_double("duration").filter(|value| *value > 0.0);
-        let paused = self.get_flag("pause").unwrap_or(false);
-        let idle = self.get_flag("core-idle").unwrap_or(true);
-        if duration_seconds.is_some() {
-            self.status = if paused { "paused" } else { "playing" }.to_owned();
-        } else if !idle {
-            self.status = "loading".to_owned();
-        }
-        let count = self.get_i64("track-list/count").unwrap_or_default().max(0);
-        let mut audio_tracks = Vec::new();
-        for index in 0..count {
-            if self
-                .get_string(&format!("track-list/{index}/type"))
-                .as_deref()
-                != Some("audio")
-            {
-                continue;
-            }
-            let Some(id) = self.get_i64(&format!("track-list/{index}/id")) else {
-                continue;
-            };
-            audio_tracks.push(MpvAudioTrack {
-                id,
-                title: self.get_string(&format!("track-list/{index}/title")),
-                language: self.get_string(&format!("track-list/{index}/lang")),
-                codec: self.get_string(&format!("track-list/{index}/codec")),
-                channels: self.get_string(&format!("track-list/{index}/audio-channels")),
-                selected: if self.mixed_audio_tracks.is_empty() {
-                    self.get_flag(&format!("track-list/{index}/selected"))
-                        .unwrap_or(false)
-                } else {
-                    self.mixed_audio_tracks.contains(&id)
-                },
-            });
-        }
-        MpvSnapshot {
-            session_id: self.session_id,
-            status: self.status.clone(),
-            position_seconds,
-            duration_seconds,
-            paused,
-            volume: self.get_double("volume").unwrap_or(100.0),
-            muted: self.get_flag("mute").unwrap_or(false),
-            audio_tracks,
-            error: None,
-        }
+    fn seek(&self, seconds: f64, exact: bool) -> Result<(), String> {
+        let seconds = seconds.max(0.0).to_string();
+        self.command(&[
+            "seek",
+            &seconds,
+            if exact {
+                "absolute+exact"
+            } else {
+                "absolute+keyframes"
+            },
+        ])
     }
 
-    fn select_audio_tracks(&mut self, track_ids: &[i64]) -> Result<(), String> {
-        if track_ids.len() == 1 {
-            self.set_string("lavfi-complex", "")?;
-            self.set_string("aid", &track_ids[0].to_string())?;
-        } else {
+    fn paths_match(left: &str, right: &str) -> bool {
+        left.replace('\\', "/").to_lowercase() == right.replace('\\', "/").to_lowercase()
+    }
+
+    fn media_ready(&self) -> bool {
+        let Some(expected_path) = self.session_path.as_deref() else {
+            return false;
+        };
+        let Some(active_path) = self.get_string("path") else {
+            return false;
+        };
+        self.pending_audio_path.is_none() && Self::paths_match(&active_path, expected_path)
+    }
+
+    fn configure_all_audio_tracks(&mut self) {
+        let Some(expected_path) = self.pending_audio_path.clone() else {
+            return;
+        };
+        let Some(active_path) = self.get_string("path") else {
+            return;
+        };
+        if !Self::paths_match(&active_path, &expected_path) {
+            return;
+        }
+        let count = self.get_i64("track-list/count").unwrap_or_default().max(0);
+        if count == 0 {
+            return;
+        }
+        let track_ids = (0..count)
+            .filter(|index| {
+                self.get_string(&format!("track-list/{index}/type"))
+                    .as_deref()
+                    == Some("audio")
+            })
+            .filter_map(|index| self.get_i64(&format!("track-list/{index}/id")))
+            .collect::<Vec<_>>();
+        if track_ids.len() >= 2 {
             let inputs = track_ids
                 .iter()
                 .map(|track_id| format!("[aid{track_id}]"))
@@ -352,10 +358,63 @@ impl Player {
                 "{inputs}amix=inputs={}:duration=longest:dropout_transition=0[ao]",
                 track_ids.len()
             );
-            self.set_string("lavfi-complex", &filter)?;
+            let _ = self.set_string("lavfi-complex", &filter);
         }
-        self.mixed_audio_tracks = track_ids.to_vec();
-        Ok(())
+        let _ = self.seek(0.0, true);
+        let _ = self.set_flag("pause", false);
+        self.pending_audio_path = None;
+    }
+
+    fn loading_snapshot(&self) -> MpvSnapshot {
+        MpvSnapshot {
+            session_id: self.session_id,
+            status: "loading".to_owned(),
+            position_seconds: 0.0,
+            duration_seconds: None,
+            paused: false,
+            seeking: false,
+            volume: self.get_double("volume").unwrap_or(100.0),
+            muted: self.get_flag("mute").unwrap_or(false),
+            media_ready: false,
+            error: None,
+        }
+    }
+
+    fn snapshot(&mut self) -> MpvSnapshot {
+        self.configure_all_audio_tracks();
+        let media_ready = self.media_ready();
+        let position_seconds = if media_ready {
+            self.get_double("time-pos").unwrap_or_default()
+        } else {
+            0.0
+        };
+        let duration_seconds = if media_ready {
+            self.get_double("duration").filter(|value| *value > 0.0)
+        } else {
+            None
+        };
+        let paused = media_ready && self.get_flag("pause").unwrap_or(false);
+        let seeking = media_ready && self.get_flag("seeking").unwrap_or(false);
+        let idle = self.get_flag("core-idle").unwrap_or(true);
+        if !media_ready {
+            self.status = "loading".to_owned();
+        } else if duration_seconds.is_some() {
+            self.status = if paused { "paused" } else { "playing" }.to_owned();
+        } else if !idle {
+            self.status = "loading".to_owned();
+        }
+        MpvSnapshot {
+            session_id: self.session_id,
+            status: self.status.clone(),
+            position_seconds,
+            duration_seconds,
+            paused,
+            seeking,
+            volume: self.get_double("volume").unwrap_or(100.0),
+            muted: self.get_flag("mute").unwrap_or(false),
+            media_ready,
+            error: None,
+        }
     }
 }
 
@@ -459,7 +518,7 @@ impl MpvService {
         }
         let player = guard.as_mut().expect("player initialized");
         player.load(path, session_id).map_err(AppError::Task)?;
-        Ok(player.snapshot())
+        Ok(player.loading_snapshot())
     }
 
     pub fn set_viewport(&self, viewport: &MpvViewport) -> AppResult<()> {
@@ -471,18 +530,50 @@ impl MpvService {
             return Ok(());
         };
         unsafe {
-            if !viewport.visible || viewport.width <= 0 || viewport.height <= 0 {
+            if !viewport.visible
+                || viewport.width <= 0
+                || viewport.height <= 0
+                || !player.media_ready()
+            {
                 let _ = ShowWindow(player.host, SW_HIDE);
                 return Ok(());
             }
-            let region = CreateRoundRectRgn(
-                0,
-                viewport.clip_top.clamp(0, viewport.height),
-                viewport.width + 1,
-                viewport.height + 1,
-                viewport.corner_radius * 2,
-                viewport.corner_radius * 2,
-            );
+            let clip_top = viewport.clip_top.clamp(0, viewport.height);
+            let clip_bottom = viewport.clip_bottom.clamp(0, viewport.height - clip_top);
+            let region_bottom = (viewport.height - clip_bottom).max(clip_top);
+            let region = if viewport.corner_radius > 0 {
+                CreateRoundRectRgn(
+                    0,
+                    clip_top,
+                    viewport.width + 1,
+                    region_bottom + 1,
+                    viewport.corner_radius * 2,
+                    viewport.corner_radius * 2,
+                )
+            } else {
+                CreateRectRgn(0, clip_top, viewport.width + 1, region_bottom + 1)
+            };
+            if viewport.overlay_width > 0 && viewport.overlay_height > 0 {
+                let overlay_left = viewport.overlay_x.clamp(0, viewport.width);
+                let overlay_top = viewport.overlay_y.clamp(clip_top, region_bottom);
+                let overlay_right =
+                    (overlay_left + viewport.overlay_width).clamp(overlay_left, viewport.width);
+                let overlay_bottom =
+                    (overlay_top + viewport.overlay_height).clamp(overlay_top, region_bottom);
+                if overlay_right > overlay_left && overlay_bottom > overlay_top {
+                    let diameter = viewport.overlay_radius.max(0) * 2;
+                    let overlay_region = CreateRoundRectRgn(
+                        overlay_left,
+                        overlay_top,
+                        overlay_right + 1,
+                        overlay_bottom + 1,
+                        diameter,
+                        diameter,
+                    );
+                    let _ = CombineRgn(Some(region), Some(region), Some(overlay_region), RGN_DIFF);
+                    let _ = DeleteObject(overlay_region.into());
+                }
+            }
             let _ = SetWindowRgn(player.host, Some(region), true);
             SetWindowPos(
                 player.host,
@@ -534,9 +625,21 @@ impl MpvService {
     }
 
     pub fn seek(&self, session_id: u64, seconds: f64) -> AppResult<MpvSnapshot> {
-        self.with_session(session_id, |player| {
-            player.set_double("time-pos", seconds.max(0.0))
-        })
+        self.with_session(session_id, |player| player.seek(seconds, true))
+    }
+
+    pub fn preview_seek(&self, session_id: u64, seconds: f64) -> AppResult<()> {
+        let mut guard = self
+            .player
+            .lock()
+            .map_err(|_| AppError::Task("libmpv player lock failed.".to_owned()))?;
+        let player = guard
+            .as_mut()
+            .ok_or_else(|| AppError::Task("libmpv is not active.".to_owned()))?;
+        if player.session_id != session_id {
+            return Err(AppError::InvalidInput("Stale player session.".to_owned()));
+        }
+        player.seek(seconds, false).map_err(AppError::Task)
     }
 
     pub fn set_volume(&self, session_id: u64, volume: f64) -> AppResult<MpvSnapshot> {
@@ -547,14 +650,6 @@ impl MpvService {
 
     pub fn set_muted(&self, session_id: u64, muted: bool) -> AppResult<MpvSnapshot> {
         self.with_session(session_id, |player| player.set_flag("mute", muted))
-    }
-
-    pub fn select_audio_tracks(
-        &self,
-        session_id: u64,
-        track_ids: Vec<i64>,
-    ) -> AppResult<MpvSnapshot> {
-        self.with_session(session_id, |player| player.select_audio_tracks(&track_ids))
     }
 
     pub fn stop(&self, session_id: u64) -> AppResult<()> {
@@ -583,10 +678,10 @@ fn create_host(window: &WebviewWindow) -> Result<HWND, String> {
         .run_on_main_thread(move || {
             let result = unsafe {
                 CreateWindowExW(
-                    WINDOW_EX_STYLE::default(),
+                    WS_EX_NOACTIVATE,
                     w!("STATIC"),
                     w!(""),
-                    WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+                    WS_CHILD | WS_DISABLED | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
                     0,
                     0,
                     1,

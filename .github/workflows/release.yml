@@ -82,6 +82,12 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          shared-key: desktop-${{ runner.os }}
+
       - name: Install frontend dependencies
         run: pnpm install --frozen-lockfile
 

@@ -176,10 +176,10 @@ impl ExternalPlayerService {
             .active
             .as_ref()
             .is_some_and(|process| process.session_id == session_id);
-        if should_stop {
-            if let Some(mut process) = state.active.take() {
-                process.stop()?;
-            }
+        if should_stop
+            && let Some(mut process) = state.active.take()
+        {
+            process.stop()?;
         }
         Ok(())
     }

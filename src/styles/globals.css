@@ -60,6 +60,16 @@ body {
   font-family: var(--font-sans);
 }
 
+html[data-player-fullscreen="true"],
+html[data-player-fullscreen="true"] body {
+  overflow: hidden;
+}
+
+html[data-player-fullscreen="true"] [data-app-header] {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 button, input, select { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 ::selection { background: rgba(255, 255, 255, 0.22); }

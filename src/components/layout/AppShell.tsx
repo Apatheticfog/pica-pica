@@ -12,7 +12,10 @@ const navItems = [
 export function AppShell() {
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-40 border-b border-white/[.07] bg-background/88 backdrop-blur-xl">
+      <header
+        data-app-header
+        className="sticky top-0 z-40 border-b border-white/[.07] bg-background/88 backdrop-blur-xl"
+      >
         <div className="mx-auto flex h-[68px] max-w-[3200px] items-center gap-7 px-5 sm:px-8 lg:px-10">
           <NavLink to="/library" aria-label="Pica Pica library" className="flex items-center gap-3 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-primary">
             <PicaMark />

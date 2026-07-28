@@ -7,7 +7,7 @@ import { libraryClient } from "@/data/library-client";
 import { cn, formatDuration } from "@/lib/utils";
 import type { Clip } from "@/types/library";
 
-const FULLSCREEN_CONTROLS_HIDE_DELAY = 1_500;
+const CONTROLS_HIDE_DELAY = 1_500;
 
 interface HtmlVideoPlayerProps {
   clip: Clip;
@@ -65,7 +65,7 @@ export function HtmlVideoPlayer({
 
   const scheduleControlsHide = useCallback(() => {
     clearControlsTimer();
-    if (!fullscreen || paused) {
+    if (paused) {
       setControlsVisible(true);
       return;
     }
@@ -73,20 +73,18 @@ export function HtmlVideoPlayer({
       const controlsActive = controlsRef.current?.matches(":hover, :focus-within") ?? false;
       if (!controlsActive) setControlsVisible(false);
       controlsTimerRef.current = null;
-    }, FULLSCREEN_CONTROLS_HIDE_DELAY);
-  }, [clearControlsTimer, fullscreen, paused]);
+    }, CONTROLS_HIDE_DELAY);
+  }, [clearControlsTimer, paused]);
 
   const revealControls = useCallback(() => {
-    if (!fullscreen) return;
     setControlsVisible(true);
     scheduleControlsHide();
-  }, [fullscreen, scheduleControlsHide]);
+  }, [scheduleControlsHide]);
 
   const holdControls = useCallback(() => {
-    if (!fullscreen) return;
     clearControlsTimer();
     setControlsVisible(true);
-  }, [clearControlsTimer, fullscreen]);
+  }, [clearControlsTimer]);
 
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
@@ -110,6 +108,14 @@ export function HtmlVideoPlayer({
 
   useEffect(() => {
     fullscreenRef.current = fullscreen;
+  }, [fullscreen]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    document.documentElement.dataset.playerFullscreen = "true";
+    return () => {
+      delete document.documentElement.dataset.playerFullscreen;
+    };
   }, [fullscreen]);
 
   useEffect(() => {
@@ -150,12 +156,12 @@ export function HtmlVideoPlayer({
 
   useEffect(() => {
     clearControlsTimer();
-    if (fullscreen && !paused) {
+    if (!paused) {
       controlsTimerRef.current = window.setTimeout(() => {
         const controlsActive = controlsRef.current?.matches(":hover, :focus-within") ?? false;
         if (!controlsActive) setControlsVisible(false);
         controlsTimerRef.current = null;
-      }, FULLSCREEN_CONTROLS_HIDE_DELAY);
+      }, CONTROLS_HIDE_DELAY);
     }
     return clearControlsTimer;
   }, [clearControlsTimer, fullscreen, paused]);
@@ -313,10 +319,12 @@ export function HtmlVideoPlayer({
     <div
       ref={surfaceRef}
       data-player-surface
+      onPointerEnter={revealControls}
       onPointerMove={revealControls}
       className={cn(
         "group/player relative aspect-video overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#050506] shadow-[0_24px_80px_rgba(0,0,0,.35)]",
         fullscreen && "fixed inset-0 z-[100] aspect-auto rounded-none border-0 shadow-none",
+        fullscreen && !controlsVisible && "cursor-none",
       )}
     >
       <video
@@ -383,13 +391,13 @@ export function HtmlVideoPlayer({
       ) : null}
 
       <div
-        aria-hidden={fullscreen && !controlsVisible}
-        inert={fullscreen && !controlsVisible}
+        aria-hidden={!controlsVisible}
+        inert={!controlsVisible}
         className={cn(
           "absolute inset-x-0 bottom-0 z-10 p-3 sm:p-4",
           fullscreen && "px-[clamp(1rem,3vw,3rem)] pb-5",
-          fullscreen && !controlsVisible && "pointer-events-none opacity-0",
-          "transition-opacity duration-150",
+          !controlsVisible && "pointer-events-none opacity-0",
+          "transition-opacity duration-200 ease-out",
         )}
       >
         <div

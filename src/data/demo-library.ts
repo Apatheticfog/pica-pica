@@ -125,6 +125,7 @@ export const demoBootstrap: BootstrapState = {
   cachePath: demoLibrary.cachePath,
   ffmpegAvailable: true,
   ffmpegSource: "bundled",
+  mediaCompatibilityScanRequired: false,
   library: demoLibrary,
 };
 

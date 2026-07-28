@@ -1,26 +1,15 @@
-import { AlertCircle, ChevronLeft, ChevronRight, Film, LayoutGrid, Maximize2, Minimize2, MonitorPlay, Pause, Play, Volume2, VolumeX } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Film, LayoutGrid, MonitorPlay } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { ExternalPlayerPanel } from "@/components/player/ExternalPlayerPanel";
+import { HtmlVideoPlayer } from "@/components/player/HtmlVideoPlayer";
 import { ClipCard } from "@/components/library/ClipCard";
 import { GameArtwork } from "@/components/library/GameArtwork";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Slider } from "@/components/ui/slider";
 import { Spinner } from "@/components/ui/spinner";
 import { libraryClient } from "@/data/library-client";
-import { cn, formatBytes, formatDate, formatDuration } from "@/lib/utils";
+import { formatBytes, formatDate, formatDuration } from "@/lib/utils";
 import type { Clip, Game } from "@/types/library";
-import type { MpvAvailability, MpvSnapshot } from "@/types/player";
-
-let nextPlayerSession = 0;
-const FULLSCREEN_CONTROLS_HIDE_DELAY = 1_400;
-const PLAYER_OFFSCREEN_OVERSCAN_RATIO = 0.1;
-
-type SeekDraft = {
-  sessionId: number;
-  value: number;
-  phase: "dragging" | "queued" | "settling";
-  operationId: number;
-};
 
 interface VideoPlayerProps {
   game: Game;
@@ -34,13 +23,28 @@ interface VideoPlayerProps {
   onSelect: (clip: Clip) => void;
 }
 
-export function VideoPlayer({ game, clips, totalCount, selected, hasMore, loadingMore, playerActive = true, onLoadMore, onSelect }: VideoPlayerProps) {
+export function VideoPlayer({
+  game,
+  clips,
+  totalCount,
+  selected,
+  hasMore,
+  loadingMore,
+  playerActive = true,
+  onLoadMore,
+  onSelect,
+}: VideoPlayerProps) {
   const recentClips = clips.slice(0, 12);
   const showQueue = totalCount > 1;
   const [playerSurfaceHeight, setPlayerSurfaceHeight] = useState<number | null>(null);
+  const [playbackError, setPlaybackError] = useState<{ clipId: string; message: string } | null>(null);
   const selectedIndex = selected ? clips.findIndex((clip) => clip.id === selected.id) : -1;
   const previousClip = selectedIndex > 0 ? clips[selectedIndex - 1] : null;
   const nextClip = selectedIndex >= 0 ? clips[selectedIndex + 1] ?? null : null;
+  const videoUrl = libraryClient.assetUrl(selected?.compatible ? selected.path : null);
+  const posterUrl = libraryClient.assetUrl(selected?.thumbnailPath ?? null);
+  const nativePlaybackError =
+    playbackError && playbackError.clipId === selected?.id ? playbackError.message : null;
 
   const selectNextClip = async () => {
     if (nextClip) {
@@ -59,173 +63,122 @@ export function VideoPlayer({ game, clips, totalCount, selected, hasMore, loadin
     });
   };
 
+  const player = !selected ? (
+    <PlayerPlaceholder game={game} onSurfaceHeight={setPlayerSurfaceHeight} />
+  ) : selected.compatible && videoUrl && !nativePlaybackError ? (
+    <HtmlVideoPlayer
+      clip={selected}
+      src={videoUrl}
+      poster={posterUrl}
+      active={playerActive}
+      previousClip={previousClip}
+      nextAvailable={Boolean(nextClip || hasMore)}
+      navigationPending={loadingMore}
+      onPrevious={() => previousClip && onSelect(previousClip)}
+      onNext={() => void selectNextClip()}
+      onPlaybackError={(message) => setPlaybackError({ clipId: selected.id, message })}
+      onSurfaceHeight={setPlayerSurfaceHeight}
+    />
+  ) : selected.compatible && !videoUrl && !libraryClient.isDesktop() ? (
+    <PlayerPlaceholder
+      game={game}
+      selected={selected}
+      message="Native video playback is available in the desktop app. The browser preview does not receive access to your local clip."
+      onSurfaceHeight={setPlayerSurfaceHeight}
+    />
+  ) : (
+    <ExternalPlayerPanel
+      game={game}
+      clip={selected}
+      poster={posterUrl}
+      nativeError={nativePlaybackError}
+      onSurfaceHeight={setPlayerSurfaceHeight}
+    />
+  );
+
   return (
     <div>
-    <div id="clip-player" className={`mx-auto grid w-full scroll-mt-24 max-w-[min(100%,calc(177.78vh+102px))] items-start gap-5 ${showQueue ? "xl:grid-cols-[minmax(0,1fr)_clamp(340px,20vw,480px)]" : ""}`}>
-      <div className="min-w-0">
-        <NativeMpvPlayer
-          game={game}
-          selected={selected}
-          active={playerActive}
-          previousClip={previousClip}
-          nextAvailable={Boolean(nextClip || hasMore)}
-          navigationPending={loadingMore}
-          onPrevious={() => previousClip && onSelect(previousClip)}
-          onNext={() => void selectNextClip()}
-          onSurfaceHeight={setPlayerSurfaceHeight}
-        />
-        {selected ? (
-          <div className="mt-5 flex flex-col justify-between gap-4 px-1 sm:flex-row sm:items-start">
-            <div className="min-w-0">
-              <h2 className="truncate text-lg font-semibold tracking-[-.02em]">{selected.fileName}</h2>
-              <p className="mt-1.5 text-xs text-muted-foreground">Recorded {formatDate(selected.createdAt, true)}</p>
+      <div
+        id="clip-player"
+        className={`mx-auto grid w-full scroll-mt-24 max-w-[min(100%,calc(177.78vh+102px))] items-start gap-5 ${showQueue ? "xl:grid-cols-[minmax(0,1fr)_clamp(340px,20vw,480px)]" : ""}`}
+      >
+        <div className="min-w-0">
+          {player}
+          {selected ? (
+            <div className="mt-5 flex flex-col justify-between gap-4 px-1 sm:flex-row sm:items-start">
+              <div className="min-w-0">
+                <h2 className="truncate text-lg font-semibold tracking-[-.02em]">{selected.fileName}</h2>
+                <p className="mt-1.5 text-xs text-muted-foreground">Recorded {formatDate(selected.createdAt, true)}</p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <Badge>{formatDuration(selected.durationSeconds)}</Badge>
+                {selected.width && selected.height ? <Badge>{selected.width} × {selected.height}</Badge> : null}
+                <Badge>{formatBytes(selected.sizeBytes)}</Badge>
+                {selected.codec ? <Badge className="uppercase">{selected.codec}</Badge> : null}
+                <Badge>{selected.compatible && !nativePlaybackError ? "Built-in" : "External"}</Badge>
+              </div>
             </div>
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <Badge>{formatDuration(selected.durationSeconds)}</Badge>
-              {selected.width && selected.height ? <Badge>{selected.width} × {selected.height}</Badge> : null}
-              <Badge>{formatBytes(selected.sizeBytes)}</Badge>
-              {selected.codec ? <Badge className="uppercase">{selected.codec}</Badge> : null}
+          ) : null}
+        </div>
+
+        {showQueue ? (
+          <aside
+            data-clip-queue
+            style={{ height: playerSurfaceHeight ?? undefined }}
+            className="hidden min-w-0 flex-col overflow-hidden rounded-[1.35rem] border border-white/[.08] bg-white/[.025] p-3 xl:flex"
+          >
+            <div className="flex shrink-0 items-center justify-between px-2 pb-3 pt-1">
+              <div className="flex items-center gap-2 text-sm font-semibold"><Film className="size-4 text-primary" /> Recent clips</div>
+              <span className="text-xs text-muted-foreground">{Math.min(totalCount, 12)} of {totalCount}</span>
             </div>
-          </div>
+            <div className="grid min-h-0 gap-2 sm:grid-cols-2 xl:auto-rows-max xl:flex-1 xl:content-start xl:grid-cols-1 xl:overflow-y-auto xl:overscroll-contain xl:pr-1">
+              {recentClips.map((clip) => (
+                <ClipCard key={clip.id} clip={clip} game={game} active={clip.id === selected?.id} onSelect={() => onSelect(clip)} />
+              ))}
+            </div>
+          </aside>
         ) : null}
       </div>
 
-      {showQueue ? <aside data-clip-queue style={{ height: playerSurfaceHeight ?? undefined }} className="hidden min-w-0 flex-col overflow-hidden rounded-[1.35rem] border border-white/[.08] bg-white/[.025] p-3 xl:flex">
-        <div className="flex shrink-0 items-center justify-between px-2 pb-3 pt-1">
-          <div className="flex items-center gap-2 text-sm font-semibold"><Film className="size-4 text-primary" /> Recent clips</div>
-          <span className="text-xs text-muted-foreground">{Math.min(totalCount, 12)} of {totalCount}</span>
+      <section id="all-clips" className="mt-12 scroll-mt-24 border-t border-white/[.07] pt-9" aria-labelledby="all-clips-title">
+        <div className="mb-6 flex items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[.18em] text-primary">Your collection</p>
+            <h2 id="all-clips-title" className="mt-2 text-2xl font-black tracking-[-.04em]">All clips</h2>
+          </div>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground"><LayoutGrid className="size-4" /> {clips.length} of {totalCount}</div>
         </div>
-        <div className="grid min-h-0 gap-2 sm:grid-cols-2 xl:auto-rows-max xl:flex-1 xl:content-start xl:grid-cols-1 xl:overflow-y-auto xl:overscroll-contain xl:pr-1">
-          {recentClips.map((clip) => (
-            <ClipCard key={clip.id} clip={clip} game={game} active={clip.id === selected?.id} onSelect={() => onSelect(clip)} />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 [@media(min-width:2200px)]:grid-cols-5 [@media(min-width:3000px)]:grid-cols-6">
+          {clips.map((clip) => (
+            <ClipCard key={clip.id} clip={clip} game={game} active={clip.id === selected?.id} onSelect={() => selectFromGrid(clip)} />
           ))}
         </div>
-      </aside> : null}
-    </div>
-
-    <section id="all-clips" className="mt-12 scroll-mt-24 border-t border-white/[.07] pt-9" aria-labelledby="all-clips-title">
-      <div className="mb-6 flex items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[.18em] text-primary">Your collection</p>
-          <h2 id="all-clips-title" className="mt-2 text-2xl font-black tracking-[-.04em]">All clips</h2>
-        </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground"><LayoutGrid className="size-4" /> {clips.length} of {totalCount}</div>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 [@media(min-width:2200px)]:grid-cols-5 [@media(min-width:3000px)]:grid-cols-6">
-        {clips.map((clip) => (
-          <ClipCard key={clip.id} clip={clip} game={game} active={clip.id === selected?.id} onSelect={() => selectFromGrid(clip)} />
-        ))}
-      </div>
-      {hasMore ? (
-        <div className="mt-8 flex justify-center">
-          <Button variant="secondary" onClick={() => void onLoadMore()} disabled={loadingMore}>
-            {loadingMore ? <Spinner /> : <LayoutGrid className="size-4" />}
-            {loadingMore ? "Loading more clips …" : "Load more clips"}
-          </Button>
-        </div>
-      ) : null}
-    </section>
+        {hasMore ? (
+          <div className="mt-8 flex justify-center">
+            <Button variant="secondary" onClick={() => void onLoadMore()} disabled={loadingMore}>
+              {loadingMore ? <Spinner /> : <LayoutGrid className="size-4" />}
+              {loadingMore ? "Loading more clips …" : "Load more clips"}
+            </Button>
+          </div>
+        ) : null}
+      </section>
     </div>
   );
 }
 
-interface NativeMpvPlayerProps {
+function PlayerPlaceholder({
+  game,
+  selected = null,
+  message = "Choose a clip from Recent clips or the grid below to start playback.",
+  onSurfaceHeight,
+}: {
   game: Game;
-  selected: Clip | null;
-  active: boolean;
-  previousClip: Clip | null;
-  nextAvailable: boolean;
-  navigationPending: boolean;
-  onPrevious: () => void;
-  onNext: () => void;
+  selected?: Clip | null;
+  message?: string;
   onSurfaceHeight: (height: number) => void;
-}
-
-function NativeMpvPlayer({ game, selected, active, previousClip, nextAvailable, navigationPending, onPrevious, onNext, onSurfaceHeight }: NativeMpvPlayerProps) {
+}) {
   const surfaceRef = useRef<HTMLDivElement>(null);
-  const controlsRef = useRef<HTMLDivElement>(null);
-  const snapshotEpochRef = useRef(0);
-  const viewportUpdateRef = useRef<() => void>(() => undefined);
-  const nextOperationIdRef = useRef(0);
-  const latestSeekOperationRef = useRef(0);
-  const volumeRequestRef = useRef(0);
-  const previewSeekTimerRef = useRef<number | null>(null);
-  const seekSettleTimerRef = useRef<number | null>(null);
-  const pendingPreviewSeekRef = useRef<{ sessionId: number; value: number; operationId: number } | null>(null);
-  const pendingExactSeekRef = useRef<{ sessionId: number; value: number; operationId: number } | null>(null);
-  const seekCommandInFlightRef = useRef(false);
-  const [availability, setAvailability] = useState<MpvAvailability | null>(null);
-  const [playback, setPlayback] = useState<{ clipId: string; sessionId: number; snapshot: MpvSnapshot | null; error: string | null } | null>(null);
-  const [fullscreen, setFullscreen] = useState(false);
-  const [fullscreenControlsVisible, setFullscreenControlsVisible] = useState(true);
-  const [fullscreenControlsReserved, setFullscreenControlsReserved] = useState(true);
-  const fullscreenControlsTimerRef = useRef<number | null>(null);
-  const [seekDraft, setSeekDraft] = useState<SeekDraft | null>(null);
-  const [volumeDraft, setVolumeDraft] = useState<{ sessionId: number; value: number } | null>(null);
-  const current = playback?.clipId === selected?.id ? playback : null;
-  const snapshot = current?.snapshot ?? null;
-  const snapshotAvailable = Boolean(snapshot);
-  const playerReady = Boolean(snapshot?.mediaReady);
-  const error = current?.error ?? null;
-  const fallbackUrl = libraryClient.assetUrl(selected?.compatible ? selected.path : null);
-  const posterUrl = libraryClient.assetUrl(selected?.thumbnailPath ?? null);
   const gameHeroUrl = libraryClient.assetUrl(game.heroPath);
-  const viewportConfigRef = useRef({
-    active,
-    fullscreen,
-    fullscreenControlsReserved,
-  });
-
-  const clearFullscreenControlTimers = useCallback(() => {
-    if (fullscreenControlsTimerRef.current !== null) {
-      window.clearTimeout(fullscreenControlsTimerRef.current);
-      fullscreenControlsTimerRef.current = null;
-    }
-  }, []);
-
-  const hideFullscreenControls = useCallback(() => {
-    setFullscreenControlsVisible(false);
-    setFullscreenControlsReserved(false);
-  }, []);
-
-  const scheduleFullscreenControlsHide = useCallback(() => {
-    if (fullscreenControlsTimerRef.current !== null) window.clearTimeout(fullscreenControlsTimerRef.current);
-    fullscreenControlsTimerRef.current = null;
-    if (!snapshot?.paused) {
-      fullscreenControlsTimerRef.current = window.setTimeout(() => {
-        hideFullscreenControls();
-        fullscreenControlsTimerRef.current = null;
-      }, FULLSCREEN_CONTROLS_HIDE_DELAY);
-    }
-  }, [hideFullscreenControls, snapshot?.paused]);
-
-  const resetFullscreenControls = useCallback(() => {
-    clearFullscreenControlTimers();
-    setFullscreenControlsReserved(true);
-    setFullscreenControlsVisible(true);
-  }, [clearFullscreenControlTimers]);
-
-  const revealFullscreenControls = useCallback(() => {
-    if (!fullscreen) return;
-    setFullscreenControlsReserved(true);
-    setFullscreenControlsVisible(true);
-    scheduleFullscreenControlsHide();
-  }, [fullscreen, scheduleFullscreenControlsHide]);
-
-  const holdFullscreenControls = useCallback(() => {
-    if (!fullscreen) return;
-    clearFullscreenControlTimers();
-    setFullscreenControlsReserved(true);
-    setFullscreenControlsVisible(true);
-  }, [clearFullscreenControlTimers, fullscreen]);
-  useEffect(() => {
-    let mounted = true;
-    void libraryClient
-      .mpvAvailability()
-      .then((result) => mounted && setAvailability(result))
-      .catch((cause) => mounted && setAvailability({ available: false, version: null, diagnostic: cause instanceof Error ? cause.message : String(cause) }));
-    return () => { mounted = false; };
-  }, []);
 
   useLayoutEffect(() => {
     const surface = surfaceRef.current;
@@ -237,562 +190,28 @@ function NativeMpvPlayer({ game, selected, active, previousClip, nextAvailable, 
     return () => observer.disconnect();
   }, [onSurfaceHeight]);
 
-  useEffect(() => {
-    if (!selected || !availability?.available) return;
-    snapshotEpochRef.current += 1;
-    volumeRequestRef.current += 1;
-    if (previewSeekTimerRef.current !== null) window.clearTimeout(previewSeekTimerRef.current);
-    if (seekSettleTimerRef.current !== null) window.clearTimeout(seekSettleTimerRef.current);
-    previewSeekTimerRef.current = null;
-    seekSettleTimerRef.current = null;
-    pendingPreviewSeekRef.current = null;
-    pendingExactSeekRef.current = null;
-    latestSeekOperationRef.current = 0;
-    let mounted = true;
-    const sessionId = ++nextPlayerSession;
-    void libraryClient
-      .mpvLoad(selected.id, sessionId)
-      .then((result) => {
-        if (mounted) setPlayback({ clipId: selected.id, sessionId, snapshot: result, error: null });
-      })
-      .catch((cause) => {
-        if (mounted) setPlayback({ clipId: selected.id, sessionId, snapshot: null, error: cause instanceof Error ? cause.message : String(cause) });
-      });
-    return () => {
-      mounted = false;
-      if (previewSeekTimerRef.current !== null) window.clearTimeout(previewSeekTimerRef.current);
-      if (seekSettleTimerRef.current !== null) window.clearTimeout(seekSettleTimerRef.current);
-      previewSeekTimerRef.current = null;
-      seekSettleTimerRef.current = null;
-      pendingPreviewSeekRef.current = null;
-      pendingExactSeekRef.current = null;
-      void libraryClient.mpvStop(sessionId).catch(() => undefined);
-    };
-  }, [availability?.available, selected]);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.defaultPrevented) return;
-      if (event.key === "Tab" && fullscreen && !fullscreenControlsVisible) {
-        event.preventDefault();
-        resetFullscreenControls();
-        return;
-      }
-      if (event.key === "Escape" && fullscreen) {
-        void libraryClient.setFullscreen(false).then(() => {
-          setFullscreen(false);
-          resetFullscreenControls();
-        });
-      } else if (event.key.toLocaleLowerCase() === "f" && !event.ctrlKey && !event.metaKey && !event.altKey) {
-        const target = event.target as HTMLElement | null;
-        if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
-        const next = !fullscreen;
-        void libraryClient.setFullscreen(next).then(() => {
-          setFullscreen(next);
-          resetFullscreenControls();
-        });
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [fullscreen, fullscreenControlsVisible, resetFullscreenControls]);
-
-  useEffect(() => () => {
-    clearFullscreenControlTimers();
-    if (fullscreen) void libraryClient.setFullscreen(false);
-  }, [clearFullscreenControlTimers, fullscreen]);
-
-  useEffect(() => {
-    if (fullscreenControlsTimerRef.current !== null) window.clearTimeout(fullscreenControlsTimerRef.current);
-    fullscreenControlsTimerRef.current = null;
-    const controlsAreActive = controlsRef.current?.matches(":hover, :focus-within") ?? false;
-    if (fullscreen && !snapshot?.paused && !controlsAreActive) {
-      fullscreenControlsTimerRef.current = window.setTimeout(() => {
-        hideFullscreenControls();
-        fullscreenControlsTimerRef.current = null;
-      }, FULLSCREEN_CONTROLS_HIDE_DELAY);
-    }
-    return () => {
-      if (fullscreenControlsTimerRef.current !== null) {
-        window.clearTimeout(fullscreenControlsTimerRef.current);
-        fullscreenControlsTimerRef.current = null;
-      }
-    };
-  }, [fullscreen, hideFullscreenControls, snapshot?.paused]);
-
-  useEffect(() => {
-    if (!current?.sessionId || !snapshotAvailable) return;
-    let mounted = true;
-    let pollTimer: number | null = null;
-    const poll = () => {
-      const snapshotEpoch = snapshotEpochRef.current;
-      void libraryClient
-        .mpvSnapshot()
-        .then((result) => {
-          if (mounted && snapshotEpoch === snapshotEpochRef.current && result.sessionId === current.sessionId) {
-            setPlayback((value) => value?.sessionId === current.sessionId ? { ...value, snapshot: result } : value);
-            setSeekDraft((draft) => {
-              if (!draft || draft.phase !== "settling" || draft.sessionId !== result.sessionId || result.seeking) return draft;
-              return null;
-            });
-          }
-        })
-        .catch(() => undefined)
-        .finally(() => {
-          if (mounted) pollTimer = window.setTimeout(poll, 350);
-        });
-    };
-    pollTimer = window.setTimeout(poll, 350);
-    return () => {
-      mounted = false;
-      if (pollTimer !== null) window.clearTimeout(pollTimer);
-    };
-  }, [current?.sessionId, snapshotAvailable]);
-
-  useEffect(() => {
-    viewportConfigRef.current = {
-      active,
-      fullscreen,
-      fullscreenControlsReserved,
-    };
-    viewportUpdateRef.current();
-  }, [active, fullscreen, fullscreenControlsReserved]);
-
-  useEffect(() => {
-    const surface = surfaceRef.current;
-    if (!surface || !availability?.available || !current?.sessionId || !playerReady) {
-      void libraryClient.mpvViewport({
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-        visible: false,
-        cornerRadius: 0,
-        clipTop: 0,
-        clipBottom: 0,
-        overlayX: 0,
-        overlayY: 0,
-        overlayWidth: 0,
-        overlayHeight: 0,
-        overlayRadius: 0,
-      }).catch(() => undefined);
-      return;
-    }
-    let frame = 0;
-    const update = () => {
-      window.cancelAnimationFrame(frame);
-      frame = window.requestAnimationFrame(() => {
-        const config = viewportConfigRef.current;
-        const rect = surface.getBoundingClientRect();
-        const scale = window.devicePixelRatio || 1;
-        const offscreenMargin = rect.height * PLAYER_OFFSCREEN_OVERSCAN_RATIO;
-        const withinHorizontalViewport = rect.right > 0 && rect.left < window.innerWidth;
-        const withinVerticalOverscan = rect.bottom > -offscreenMargin
-          && rect.top < window.innerHeight + offscreenMargin;
-        const controlsRect = controlsRef.current?.getBoundingClientRect();
-        const showControlsHole =
-          config.fullscreen &&
-          config.fullscreenControlsReserved &&
-          Boolean(controlsRect);
-        const overlayPadding = Math.max(1, Math.round(2 * scale));
-        const overlayX = showControlsHole && controlsRect
-          ? Math.max(0, Math.round((controlsRect.left - rect.left) * scale) - overlayPadding)
-          : 0;
-        const overlayY = showControlsHole && controlsRect
-          ? Math.max(0, Math.round((controlsRect.top - rect.top) * scale) - overlayPadding)
-          : 0;
-        const overlayWidth = showControlsHole && controlsRect
-          ? Math.round(controlsRect.width * scale) + overlayPadding * 2
-          : 0;
-        const overlayHeight = showControlsHole && controlsRect
-          ? Math.round(controlsRect.height * scale) + overlayPadding * 2
-          : 0;
-        const fullscreenClipBottom = config.fullscreen && !config.fullscreenControlsReserved
-          ? Math.max(1, Math.round(2 * scale))
-          : 0;
-        void libraryClient.mpvViewport({
-          x: Math.round(rect.left * scale),
-          y: Math.round(rect.top * scale),
-          width: Math.round(Math.max(0, rect.width) * scale),
-          height: Math.round(Math.max(0, rect.height) * scale),
-          visible: config.active && (config.fullscreen || (withinHorizontalViewport && withinVerticalOverscan)),
-          cornerRadius: config.fullscreen ? 0 : Math.round(22 * scale),
-          clipTop: config.fullscreen ? 0 : Math.round(Math.max(0, 69 - rect.top) * scale),
-          clipBottom: config.fullscreen ? fullscreenClipBottom : 0,
-          overlayX,
-          overlayY,
-          overlayWidth,
-          overlayHeight,
-          overlayRadius: showControlsHole ? Math.round(18 * scale) : 0,
-        }).catch(() => undefined);
-      });
-    };
-    viewportUpdateRef.current = update;
-    const resizeObserver = new ResizeObserver(update);
-    const intersectionObserver = new IntersectionObserver(update, { threshold: [0, 1] });
-    resizeObserver.observe(surface);
-    if (controlsRef.current) resizeObserver.observe(controlsRef.current);
-    intersectionObserver.observe(surface);
-    window.addEventListener("scroll", update, true);
-    window.addEventListener("resize", update);
-    window.visualViewport?.addEventListener("resize", update);
-    window.visualViewport?.addEventListener("scroll", update);
-    update();
-    return () => {
-      viewportUpdateRef.current = () => undefined;
-      window.cancelAnimationFrame(frame);
-      resizeObserver.disconnect();
-      intersectionObserver.disconnect();
-      window.removeEventListener("scroll", update, true);
-      window.removeEventListener("resize", update);
-      window.visualViewport?.removeEventListener("resize", update);
-      window.visualViewport?.removeEventListener("scroll", update);
-      void libraryClient.mpvViewport({
-        x: 0,
-        y: 0,
-        width: 0,
-        height: 0,
-        visible: false,
-        cornerRadius: 0,
-        clipTop: 0,
-        clipBottom: 0,
-        overlayX: 0,
-        overlayY: 0,
-        overlayWidth: 0,
-        overlayHeight: 0,
-        overlayRadius: 0,
-      }).catch(() => undefined);
-    };
-  }, [availability?.available, current?.sessionId, playerReady]);
-
-  const updateSnapshot = (operation: Promise<MpvSnapshot>) => {
-    const sessionId = current?.sessionId;
-    if (!sessionId) return;
-    snapshotEpochRef.current += 1;
-    void operation
-      .then((result) => {
-        snapshotEpochRef.current += 1;
-        if (result.sessionId === sessionId) {
-          setPlayback((value) => value?.sessionId === sessionId ? { ...value, snapshot: result, error: null } : value);
-        }
-      })
-      .catch((cause) => {
-        snapshotEpochRef.current += 1;
-        setPlayback((value) => value?.sessionId === sessionId ? { ...value, error: cause instanceof Error ? cause.message : String(cause) } : value);
-      });
-  };
-
-  const activeSeekDraft = seekDraft && seekDraft.sessionId === snapshot?.sessionId ? seekDraft.value : null;
-  const activeVolumeDraft = volumeDraft && volumeDraft.sessionId === snapshot?.sessionId ? volumeDraft.value : null;
-
-  const holdSeekPosition = (sessionId: number, value: number, phase: SeekDraft["phase"], operationId: number) => {
-    setSeekDraft({ sessionId, value, phase, operationId });
-    if (seekSettleTimerRef.current !== null) window.clearTimeout(seekSettleTimerRef.current);
-    seekSettleTimerRef.current = window.setTimeout(() => {
-      setSeekDraft((draft) => draft?.sessionId === sessionId && draft.operationId === operationId ? null : draft);
-      seekSettleTimerRef.current = null;
-    }, 5_000);
-  };
-
-  const markSeekSettling = (sessionId: number, operationId: number) => {
-    setSeekDraft((draft) => draft?.sessionId === sessionId
-      && draft.phase === "queued"
-      && draft.operationId === operationId
-      ? { ...draft, phase: "settling" }
-      : draft);
-  };
-
-  const reportPlayerError = (sessionId: number, cause: unknown) => {
-    setPlayback((currentPlayback) => currentPlayback?.sessionId === sessionId
-      ? { ...currentPlayback, error: cause instanceof Error ? cause.message : String(cause) }
-      : currentPlayback);
-  };
-
-  const schedulePreviewSeek = () => {
-    if (previewSeekTimerRef.current !== null || pendingExactSeekRef.current || seekCommandInFlightRef.current) return;
-    previewSeekTimerRef.current = window.setTimeout(() => {
-      previewSeekTimerRef.current = null;
-      drainSeekQueue();
-    }, 75);
-  };
-
-  const drainSeekQueue = () => {
-    if (seekCommandInFlightRef.current) return;
-    const exact = pendingExactSeekRef.current;
-    if (exact) {
-      pendingExactSeekRef.current = null;
-      pendingPreviewSeekRef.current = null;
-      seekCommandInFlightRef.current = true;
-      snapshotEpochRef.current += 1;
-      void libraryClient
-        .mpvSeek(exact.sessionId, exact.value)
-        .then(() => {
-          snapshotEpochRef.current += 1;
-          if (latestSeekOperationRef.current !== exact.operationId) return;
-          setPlayback((currentPlayback) => currentPlayback?.sessionId === exact.sessionId ? { ...currentPlayback, error: null } : currentPlayback);
-          markSeekSettling(exact.sessionId, exact.operationId);
-        })
-        .catch((cause) => {
-          snapshotEpochRef.current += 1;
-          if (latestSeekOperationRef.current !== exact.operationId) return;
-          reportPlayerError(exact.sessionId, cause);
-          setSeekDraft((draft) => draft?.sessionId === exact.sessionId
-            && draft.phase === "queued"
-            && draft.operationId === exact.operationId
-            ? null
-            : draft);
-        })
-        .finally(() => {
-          seekCommandInFlightRef.current = false;
-          if (pendingExactSeekRef.current) drainSeekQueue();
-          else if (pendingPreviewSeekRef.current) schedulePreviewSeek();
-        });
-      return;
-    }
-
-    const preview = pendingPreviewSeekRef.current;
-    if (!preview) return;
-    pendingPreviewSeekRef.current = null;
-    seekCommandInFlightRef.current = true;
-    snapshotEpochRef.current += 1;
-    void libraryClient
-      .mpvPreviewSeek(preview.sessionId, preview.value)
-      .then(() => {
-        snapshotEpochRef.current += 1;
-      })
-      .catch((cause) => {
-        snapshotEpochRef.current += 1;
-        if (latestSeekOperationRef.current !== preview.operationId) return;
-        reportPlayerError(preview.sessionId, cause);
-        setSeekDraft((draft) => draft?.sessionId === preview.sessionId && draft.operationId === preview.operationId ? null : draft);
-      })
-      .finally(() => {
-        seekCommandInFlightRef.current = false;
-        if (pendingExactSeekRef.current) drainSeekQueue();
-        else if (pendingPreviewSeekRef.current) schedulePreviewSeek();
-      });
-  };
-
-  const previewSeek = (value: number) => {
-    if (!snapshot) return;
-    const sessionId = snapshot.sessionId;
-    const operationId = ++nextOperationIdRef.current;
-    latestSeekOperationRef.current = operationId;
-    snapshotEpochRef.current += 1;
-    holdSeekPosition(sessionId, value, "dragging", operationId);
-    pendingPreviewSeekRef.current = { sessionId, value, operationId };
-    schedulePreviewSeek();
-  };
-
-  const commitSeek = (value: number) => {
-    if (!snapshot) return;
-    const sessionId = snapshot.sessionId;
-    const operationId = ++nextOperationIdRef.current;
-    latestSeekOperationRef.current = operationId;
-    if (previewSeekTimerRef.current !== null) window.clearTimeout(previewSeekTimerRef.current);
-    previewSeekTimerRef.current = null;
-    pendingPreviewSeekRef.current = null;
-    pendingExactSeekRef.current = { sessionId, value, operationId };
-    snapshotEpochRef.current += 1;
-    holdSeekPosition(sessionId, value, "queued", operationId);
-    drainSeekQueue();
-  };
-
-  const commitVolume = (value: number) => {
-    if (!snapshot) return;
-    const sessionId = snapshot.sessionId;
-    const requestId = ++volumeRequestRef.current;
-    snapshotEpochRef.current += 1;
-    setVolumeDraft({ sessionId, value });
-    void libraryClient
-      .mpvVolume(sessionId, value)
-      .then((result) => {
-        snapshotEpochRef.current += 1;
-        if (result.sessionId === sessionId) {
-          setPlayback((currentPlayback) => currentPlayback?.sessionId === sessionId ? { ...currentPlayback, snapshot: result, error: null } : currentPlayback);
-        }
-      })
-      .catch((cause) => {
-        snapshotEpochRef.current += 1;
-        setPlayback((currentPlayback) => currentPlayback?.sessionId === sessionId ? { ...currentPlayback, error: cause instanceof Error ? cause.message : String(cause) } : currentPlayback);
-      })
-      .finally(() => {
-        if (volumeRequestRef.current === requestId) setVolumeDraft((draft) => draft?.sessionId === sessionId ? null : draft);
-      });
-  };
-
-  const toggleFullscreen = () => {
-    const next = !fullscreen;
-    void libraryClient
-      .setFullscreen(next)
-      .then(() => {
-        setFullscreen(next);
-        resetFullscreenControls();
-      })
-      .catch(() => undefined);
-  };
-
   return (
-    <div>
-      <div ref={surfaceRef} data-player-surface onPointerMove={revealFullscreenControls} className={cn(
-        "group/player relative aspect-video overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#050506] shadow-[0_24px_80px_rgba(0,0,0,.35)]",
-        fullscreen && "fixed inset-0 z-[100] aspect-auto rounded-none border-0 shadow-none",
-      )}>
-        {posterUrl && !playerReady ? <img src={posterUrl} alt="" aria-hidden="true" className="pointer-events-none absolute inset-0 size-full object-cover" /> : null}
-        {!availability ? (
-          <div className="absolute inset-0 grid place-items-center"><Spinner className="size-6" /></div>
-        ) : !availability.available && fallbackUrl ? (
-          <ManagedVideo key={fallbackUrl} src={fallbackUrl} poster={posterUrl} />
-        ) : !availability.available || error || !selected ? (
-          <>
-            <GameArtwork title={game.title} start={game.accentStart} end={game.accentEnd} variant="hero" imageUrl={gameHeroUrl} className="absolute inset-0 size-full opacity-45" />
-            <div className="absolute inset-0 bg-black/60" />
-            <div className="absolute inset-0 grid place-items-center px-8 text-center">
-              <div className="max-w-lg">
-                {error || !availability.available ? <AlertCircle className="mx-auto size-8 text-amber-300" /> : <MonitorPlay className="mx-auto size-9 text-white/75" />}
-                <p className="mt-4 text-base font-semibold">{error ? "libmpv could not play this clip" : selected ? "Embedded libmpv is unavailable" : "Choose a local clip"}</p>
-                <p className="mt-2 text-xs leading-5 text-white/50">
-                  {error
-                    ?? (!availability.available
-                      ? availability.diagnostic ?? "The Windows preview includes libmpv for direct local playback."
-                      : "Choose a clip from Recent clips or the grid below to start playback.")}
-                </p>
-              </div>
-            </div>
-          </>
-        ) : !current?.snapshot?.mediaReady ? (
-          <div className="absolute inset-0 grid place-items-center"><div className="flex items-center gap-3 text-sm text-white/60"><Spinner /> Starting libmpv …</div></div>
-        ) : null}
-      </div>
-
-      {availability?.available ? (
-        <div
-          aria-hidden={fullscreen && !fullscreenControlsVisible}
-          inert={fullscreen && !fullscreenControlsVisible}
-          className={cn(
-            "mt-3 flex min-h-24 flex-col gap-3 rounded-2xl border border-white/[.08] bg-white/[.025] p-3",
-            fullscreen && "pointer-events-none fixed inset-x-0 bottom-0 z-[101] m-0 min-h-0 rounded-none border-0 bg-transparent px-[clamp(1rem,3vw,3rem)] pb-5 pt-0 text-white shadow-none",
-            fullscreen && !fullscreenControlsVisible && "pointer-events-none opacity-0",
-          )}
-        >
-          {snapshot?.mediaReady ? (
-            <div
-              ref={controlsRef}
-              onPointerEnter={holdFullscreenControls}
-              onPointerMove={holdFullscreenControls}
-              onPointerLeave={revealFullscreenControls}
-              onFocusCapture={holdFullscreenControls}
-              onBlurCapture={revealFullscreenControls}
-              className={fullscreen
-                ? "pointer-events-auto mx-auto flex w-full max-w-[72rem] flex-col gap-2.5 rounded-2xl bg-background p-3 ring-2 ring-white"
-                : "contents"}
-            >
-              <Slider
-                aria-label="Playback position"
-                min={0}
-                max={Math.max(snapshot.durationSeconds ?? 0, 1)}
-                step={0.1}
-                value={[Math.min(activeSeekDraft ?? snapshot.positionSeconds, snapshot.durationSeconds ?? activeSeekDraft ?? snapshot.positionSeconds)]}
-                aria-valuetext={`${formatDuration(activeSeekDraft ?? snapshot.positionSeconds)} of ${formatDuration(snapshot.durationSeconds)}`}
-                onValueChange={([value]) => previewSeek(value)}
-                onValueCommit={([value]) => commitSeek(value)}
-                className="h-4"
-              />
-              <div className={cn(
-                "flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap",
-                fullscreen && "px-0.5",
-              )}>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Previous clip"
-                  title={previousClip ? `Previous: ${previousClip.fileName}` : "No previous clip"}
-                  disabled={!previousClip}
-                  onClick={onPrevious}
-                >
-                  <ChevronLeft className="size-4" />
-                </Button>
-                <Button
-                  size="icon"
-                  variant="secondary"
-                  aria-label={snapshot.paused ? "Play" : "Pause"}
-                  onClick={() => updateSnapshot(libraryClient.mpvPaused(snapshot.sessionId, !snapshot.paused))}
-                >
-                  {snapshot.paused ? <Play className="size-4" /> : <Pause className="size-4" />}
-                </Button>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label="Next clip"
-                  title={nextAvailable ? "Next clip" : "No next clip"}
-                  disabled={!nextAvailable || navigationPending}
-                  onClick={onNext}
-                >
-                  {navigationPending ? <Spinner className="size-4" /> : <ChevronRight className="size-4" />}
-                </Button>
-                <span className="w-28 shrink-0 text-center text-xs tabular-nums text-muted-foreground">
-                  {formatDuration(activeSeekDraft ?? snapshot.positionSeconds)} / {formatDuration(snapshot.durationSeconds)}
-                </span>
-                <div className="min-w-2 flex-1" />
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  aria-label={snapshot.muted ? "Unmute" : "Mute"}
-                  onClick={() => updateSnapshot(libraryClient.mpvMuted(snapshot.sessionId, !snapshot.muted))}
-                >
-                  {snapshot.muted ? <VolumeX className="size-4" /> : <Volume2 className="size-4" />}
-                </Button>
-                <Slider
-                  aria-label="Volume"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={[activeVolumeDraft ?? snapshot.volume]}
-                  onValueChange={([value]) => setVolumeDraft({ sessionId: snapshot.sessionId, value })}
-                  onValueCommit={([value]) => commitVolume(value)}
-                  className="w-24 shrink-0"
-                />
-                <Button size="icon" variant="ghost" aria-label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"} title={fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen (F)"} onClick={toggleFullscreen}>
-                  {fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-                </Button>
-              </div>
-            </div>
-          ) : <div className="flex w-full flex-1 items-center justify-center gap-2 text-xs text-muted-foreground"><Spinner /> Loading player …</div>}
+    <div
+      ref={surfaceRef}
+      data-player-surface
+      className="relative aspect-video overflow-hidden rounded-[1.35rem] border border-white/10 bg-[#050506] shadow-[0_24px_80px_rgba(0,0,0,.35)]"
+    >
+      <GameArtwork
+        title={game.title}
+        start={game.accentStart}
+        end={game.accentEnd}
+        variant="hero"
+        imageUrl={gameHeroUrl}
+        className="absolute inset-0 size-full opacity-45"
+      />
+      <div className="absolute inset-0 bg-black/60" />
+      <div className="absolute inset-0 grid place-items-center px-8 text-center">
+        <div className="max-w-lg">
+          <MonitorPlay className="mx-auto size-9 text-white/75" />
+          <p className="mt-4 text-base font-semibold">{selected ? "Desktop playback" : "Choose a local clip"}</p>
+          <p className="mt-2 text-xs leading-5 text-white/50">{message}</p>
         </div>
-      ) : null}
-      {fullscreen && !fullscreenControlsVisible ? (
-        <div
-          aria-hidden="true"
-          className="fixed inset-x-0 bottom-0 z-[102] h-0.5"
-          onPointerEnter={revealFullscreenControls}
-        />
-      ) : null}
+      </div>
     </div>
-  );
-}
-
-function ManagedVideo({ src, poster }: { src: string; poster: string | null }) {
-  const ref = useRef<HTMLVideoElement>(null);
-
-  useEffect(() => {
-    const video = ref.current;
-    return () => {
-      if (!video) return;
-      video.pause();
-      video.removeAttribute("src");
-      video.load();
-    };
-  }, [src]);
-
-  return (
-    <video
-      ref={ref}
-      src={src}
-      poster={poster ?? undefined}
-      preload="metadata"
-      controls
-      autoPlay
-      className="size-full bg-black object-contain"
-    />
   );
 }

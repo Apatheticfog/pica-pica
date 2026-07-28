@@ -10,6 +10,12 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
+pub struct ClipPlaylist {
+    pub clips: Vec<(String, PathBuf)>,
+    pub selected_index: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct Database {
     path: PathBuf,
     cache_path: PathBuf,
@@ -53,6 +59,21 @@ impl Database {
             )
             .optional()?;
         Ok(value.map(PathBuf::from))
+    }
+
+    pub fn media_compatibility_scan_required(&self) -> AppResult<bool> {
+        let connection = self.connection()?;
+        let pending = connection.query_row(
+            r#"SELECT EXISTS(
+                 SELECT 1
+                 FROM clips
+                 WHERE audio_compatible IS NULL OR video_compatible IS NULL
+                 LIMIT 1
+               )"#,
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(pending != 0)
     }
 
     pub fn persist_scan(
@@ -106,18 +127,23 @@ impl Database {
                 transaction.execute(
                     r#"INSERT INTO clips(
                       id, game_id, path, file_name, extension, size_bytes, created_at, duration_seconds,
-                      width, height, codec, compatible, thumbnail_path, updated_at
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                      width, height, codec, compatible, audio_compatible, video_compatible,
+                      thumbnail_path, updated_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
                     ON CONFLICT(id) DO UPDATE SET
                       game_id = excluded.game_id, path = excluded.path, file_name = excluded.file_name,
                       extension = excluded.extension, size_bytes = excluded.size_bytes, created_at = excluded.created_at,
                       duration_seconds = excluded.duration_seconds, width = excluded.width, height = excluded.height,
-                      codec = excluded.codec, compatible = excluded.compatible, thumbnail_path = excluded.thumbnail_path,
+                      codec = excluded.codec, compatible = excluded.compatible,
+                      audio_compatible = excluded.audio_compatible,
+                      video_compatible = excluded.video_compatible,
+                      thumbnail_path = excluded.thumbnail_path,
                       updated_at = excluded.updated_at"#,
                     params![
                         clip.id, clip.game_id, clip.path, clip.file_name, clip.extension, clip.size_bytes as i64,
                         clip.created_at, clip.duration_seconds, clip.width, clip.height, clip.codec,
-                        i64::from(clip.compatible), clip.thumbnail_path, scan_generation,
+                        i64::from(clip.compatible), clip.audio_compatible.map(i64::from),
+                        clip.video_compatible.map(i64::from), clip.thumbnail_path, scan_generation,
                     ],
                 )?;
             }
@@ -140,7 +166,9 @@ impl Database {
     pub fn cached_clips(&self) -> AppResult<HashMap<String, CachedClip>> {
         let connection = self.connection()?;
         let mut statement = connection.prepare(
-            "SELECT id, size_bytes, created_at, duration_seconds, width, height, codec FROM clips",
+            "SELECT id, size_bytes, created_at, duration_seconds, width, height, codec,
+                    audio_compatible, video_compatible
+             FROM clips",
         )?;
         let rows = statement.query_map([], |row| {
             Ok((
@@ -152,6 +180,8 @@ impl Database {
                     width: row.get(4)?,
                     height: row.get(5)?,
                     codec: row.get(6)?,
+                    audio_compatible: row.get::<_, Option<i64>>(7)?.map(|value| value != 0),
+                    video_compatible: row.get::<_, Option<i64>>(8)?.map(|value| value != 0),
                 },
             ))
         })?;
@@ -236,7 +266,8 @@ impl Database {
         let cursor_id = cursor.map(|value| value.id.as_str());
         let mut statement = connection.prepare(
             r#"SELECT id, game_id, path, file_name, extension, size_bytes, created_at,
-               duration_seconds, width, height, codec, compatible, thumbnail_path
+               duration_seconds, width, height, codec, compatible, audio_compatible,
+               video_compatible, thumbnail_path
                FROM clips
                WHERE game_id = ?1
                  AND (?2 IS NULL OR (created_at, id) < (?2, ?3))
@@ -264,14 +295,47 @@ impl Database {
         })
     }
 
-    pub fn clip_path(&self, clip_id: &str) -> AppResult<PathBuf> {
+    pub fn clip_playlist(&self, game_id: &str, clip_id: &str) -> AppResult<ClipPlaylist> {
         let connection = self.connection()?;
-        let path = connection
-            .query_row("SELECT path FROM clips WHERE id = ?1", [clip_id], |row| {
-                Ok(PathBuf::from(row.get::<_, String>(0)?))
-            })
-            .optional()?;
-        path.ok_or_else(|| AppError::InvalidInput("The clip was not found.".to_owned()))
+        let selected_game_id = connection
+            .query_row(
+                "SELECT game_id FROM clips WHERE id = ?1",
+                [clip_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .ok_or_else(|| AppError::InvalidInput("The clip was not found.".to_owned()))?;
+
+        if selected_game_id != game_id {
+            return Err(AppError::InvalidInput(
+                "The selected clip does not belong to this game.".to_owned(),
+            ));
+        }
+
+        let mut statement = connection.prepare(
+            r#"SELECT id, path
+               FROM clips
+               WHERE game_id = ?1
+               ORDER BY created_at DESC, id DESC"#,
+        )?;
+        let rows = statement.query_map([game_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                PathBuf::from(row.get::<_, String>(1)?),
+            ))
+        })?;
+        let clips = rows.collect::<Result<Vec<_>, _>>()?;
+        let selected_index = clips
+            .iter()
+            .position(|(id, _)| id == clip_id)
+            .ok_or_else(|| {
+                AppError::InvalidInput("The clip is no longer part of this game.".to_owned())
+            })?;
+
+        Ok(ClipPlaylist {
+            clips,
+            selected_index,
+        })
     }
 
     pub fn update_metadata(&self, update: &MetadataUpdate) -> AppResult<()> {
@@ -370,7 +434,9 @@ fn clip_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Clip> {
         height: row.get(9)?,
         codec: row.get(10)?,
         compatible: row.get::<_, i64>(11)? != 0,
-        thumbnail_path: row.get(12)?,
+        audio_compatible: row.get::<_, Option<i64>>(12)?.map(|value| value != 0),
+        video_compatible: row.get::<_, Option<i64>>(13)?.map(|value| value != 0),
+        thumbnail_path: row.get(14)?,
     })
 }
 
@@ -403,6 +469,30 @@ mod tests {
         }
     }
 
+    fn sample_clip(game_id: &str, path: &Path, id: &str, created_at: i64) -> Clip {
+        Clip {
+            id: id.to_owned(),
+            game_id: game_id.to_owned(),
+            path: path.to_string_lossy().into_owned(),
+            file_name: path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+            extension: "mp4".to_owned(),
+            size_bytes: 128_000_000,
+            created_at,
+            duration_seconds: Some(30.0),
+            width: Some(1920),
+            height: Some(1080),
+            codec: Some("h264".to_owned()),
+            compatible: true,
+            audio_compatible: Some(true),
+            video_compatible: Some(true),
+            thumbnail_path: None,
+        }
+    }
+
     #[test]
     fn repeated_scan_does_not_duplicate_games() {
         let temp = tempfile::tempdir().expect("temp dir");
@@ -422,6 +512,46 @@ mod tests {
                 .games
                 .len(),
             1
+        );
+    }
+
+    #[test]
+    fn compatibility_scan_flag_tracks_pending_rows() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let database = Database::open(&temp.path().join("app")).expect("database");
+        assert!(
+            !database
+                .media_compatibility_scan_required()
+                .expect("empty compatibility state")
+        );
+
+        let root = temp.path().join("clips");
+        let mut game = sample_game(&root);
+        let mut clip = sample_clip(&game.id, &root.join("Game").join("Replay.mp4"), "clip", 100);
+        clip.compatible = false;
+        clip.audio_compatible = None;
+        clip.video_compatible = None;
+        game.clips = vec![clip.clone()];
+        game.clip_count = 1;
+        database
+            .persist_scan(&root, &[game.clone()], 100, true)
+            .expect("pending scan");
+        assert!(
+            database
+                .media_compatibility_scan_required()
+                .expect("pending compatibility state")
+        );
+
+        clip.audio_compatible = Some(false);
+        clip.video_compatible = Some(false);
+        game.clips = vec![clip];
+        database
+            .persist_scan(&root, &[game], 200, true)
+            .expect("resolved scan");
+        assert!(
+            !database
+                .media_compatibility_scan_required()
+                .expect("resolved compatibility state")
         );
     }
 
@@ -530,6 +660,41 @@ mod tests {
     }
 
     #[test]
+    fn external_playlist_uses_library_order_and_validates_game_membership() {
+        let temp = tempfile::tempdir().expect("temp dir");
+        let database = Database::open(&temp.path().join("app")).expect("database");
+        let root = temp.path().join("clips");
+        let game_root = root.join("Game");
+        std::fs::create_dir_all(&game_root).expect("game root");
+        let mut game = sample_game(&root);
+        game.clips = vec![
+            sample_clip(&game.id, &game_root.join("older.mp4"), "clip-older", 100),
+            sample_clip(&game.id, &game_root.join("newer-a.mp4"), "clip-a", 200),
+            sample_clip(&game.id, &game_root.join("newer-b.mp4"), "clip-b", 200),
+        ];
+        game.clip_count = game.clips.len();
+        database
+            .persist_scan(&root, &[game], 100, true)
+            .expect("scan");
+
+        let playlist = database.clip_playlist("game", "clip-a").expect("playlist");
+        assert_eq!(
+            playlist
+                .clips
+                .iter()
+                .map(|(id, _)| id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["clip-b", "clip-a", "clip-older"]
+        );
+        assert_eq!(playlist.selected_index, 1);
+
+        let error = database
+            .clip_playlist("another-game", "clip-a")
+            .expect_err("wrong game must be rejected");
+        assert!(error.to_string().contains("does not belong"));
+    }
+
+    #[test]
     fn large_library_snapshot_stays_small_and_clips_are_cursor_paginated() {
         let temp = tempfile::tempdir().expect("temp dir");
         let database = Database::open(&temp.path().join("app")).expect("database");
@@ -554,6 +719,8 @@ mod tests {
                 height: Some(1080),
                 codec: Some("h264".to_owned()),
                 compatible: true,
+                audio_compatible: Some(true),
+                video_compatible: Some(true),
                 thumbnail_path: None,
             })
             .collect();

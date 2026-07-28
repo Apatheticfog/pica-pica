@@ -1,4 +1,4 @@
-use crate::database::Database;
+use crate::database::{ClipPlaylist, Database};
 use crate::errors::{AppError, AppResult};
 use crate::library::execute_scan;
 use crate::metadata::{OnlineMetadataService, ProviderKey};
@@ -6,7 +6,9 @@ use crate::models::{
     ApiKeyUpdate, BootstrapState, ClipCursor, ClipPage, CustomArtworkUpdate, LibrarySnapshot,
     MetadataSearchResult, MetadataSelection, MetadataUpdate, ProviderSettings, ScanResult,
 };
-use crate::player::{MpvAvailability, MpvService, MpvSnapshot, MpvViewport};
+use crate::player::{
+    ExternalPlayerAvailability, ExternalPlayerKind, ExternalPlayerService, ExternalPlayerSession,
+};
 use crate::video::FfmpegTools;
 use std::path::{Path, PathBuf};
 use tauri::{Manager, State};
@@ -16,12 +18,14 @@ pub struct AppState {
     pub database: Database,
     pub ffmpeg: FfmpegTools,
     pub online_metadata: OnlineMetadataService,
-    pub mpv: MpvService,
+    pub external_player: ExternalPlayerService,
 }
 
 #[tauri::command]
 pub fn get_bootstrap(state: State<'_, AppState>) -> AppResult<BootstrapState> {
     let root_path = state.database.root_path()?;
+    let media_compatibility_scan_required =
+        root_path.is_some() && state.database.media_compatibility_scan_required()?;
     let library = if root_path.is_some() {
         Some(
             state
@@ -37,6 +41,7 @@ pub fn get_bootstrap(state: State<'_, AppState>) -> AppResult<BootstrapState> {
         cache_path: state.database.cache_path().to_string_lossy().into_owned(),
         ffmpeg_available: state.ffmpeg.available,
         ffmpeg_source: state.ffmpeg.source.clone(),
+        media_compatibility_scan_required,
         library,
     })
 }
@@ -99,102 +104,99 @@ pub async fn scan_library(state: State<'_, AppState>) -> AppResult<ScanResult> {
 }
 
 #[tauri::command]
-pub fn get_mpv_availability(state: State<'_, AppState>) -> MpvAvailability {
-    state.mpv.availability()
+pub fn get_external_player_availability(state: State<'_, AppState>) -> ExternalPlayerAvailability {
+    state.external_player.availability()
 }
 
 #[tauri::command]
-pub async fn mpv_load_clip(
+pub async fn open_external_playlist(
+    game_id: String,
     clip_id: String,
-    session_id: u64,
-    window: tauri::WebviewWindow,
+    player: ExternalPlayerKind,
     state: State<'_, AppState>,
-) -> AppResult<MpvSnapshot> {
+) -> AppResult<ExternalPlayerSession> {
+    validate_game_id(&game_id)?;
     validate_clip_id(&clip_id)?;
-    let path = state.database.clip_path(&clip_id)?;
-    if !path.is_file() {
-        return Err(AppError::InvalidInput(
-            "The original clip is no longer available.".to_owned(),
-        ));
-    }
-    let mpv = state.mpv.clone();
-    tauri::async_runtime::spawn_blocking(move || mpv.load(&window, &path, session_id))
+    let database = state.database.clone();
+    let external_player = state.external_player.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let playlist = database.clip_playlist(&game_id, &clip_id)?;
+        let (paths, selected_index) = playable_clip_paths(playlist)?;
+        external_player.launch(player, paths, selected_index)
+    })
+    .await
+    .map_err(|error| AppError::Task(error.to_string()))?
+}
+
+#[tauri::command]
+pub async fn stop_external_player(session_id: u64, state: State<'_, AppState>) -> AppResult<()> {
+    let external_player = state.external_player.clone();
+    tauri::async_runtime::spawn_blocking(move || external_player.stop(session_id))
         .await
         .map_err(|error| AppError::Task(error.to_string()))?
 }
 
-#[tauri::command]
-pub fn mpv_set_viewport(viewport: MpvViewport, state: State<'_, AppState>) -> AppResult<()> {
-    state.mpv.set_viewport(&viewport)
-}
+fn playable_clip_paths(playlist: ClipPlaylist) -> AppResult<(Vec<PathBuf>, usize)> {
+    let selected_id = playlist
+        .clips
+        .get(playlist.selected_index)
+        .map(|(id, _)| id.clone())
+        .ok_or_else(|| {
+            AppError::InvalidInput("The selected clip is not present in the playlist.".to_owned())
+        })?;
+    let mut paths = Vec::with_capacity(playlist.clips.len());
+    let mut selected_index = None;
 
-#[tauri::command]
-pub fn get_mpv_snapshot(state: State<'_, AppState>) -> AppResult<MpvSnapshot> {
-    state.mpv.snapshot()
-}
-
-#[tauri::command]
-pub fn mpv_set_paused(
-    session_id: u64,
-    paused: bool,
-    state: State<'_, AppState>,
-) -> AppResult<MpvSnapshot> {
-    state.mpv.set_paused(session_id, paused)
-}
-
-#[tauri::command]
-pub fn mpv_seek(
-    session_id: u64,
-    seconds: f64,
-    state: State<'_, AppState>,
-) -> AppResult<MpvSnapshot> {
-    if !seconds.is_finite() {
-        return Err(AppError::InvalidInput("Invalid seek position.".to_owned()));
+    for (clip_id, path) in playlist.clips {
+        let valid_file = path.is_absolute()
+            && std::fs::symlink_metadata(&path)
+                .is_ok_and(|metadata| metadata.file_type().is_file());
+        if !valid_file {
+            if clip_id == selected_id {
+                return Err(AppError::InvalidInput(
+                    "The original clip is no longer available.".to_owned(),
+                ));
+            }
+            continue;
+        }
+        let valid_playlist_path = path
+            .to_str()
+            .is_some_and(|value| !value.contains(['\r', '\n']));
+        if !valid_playlist_path {
+            if clip_id == selected_id {
+                return Err(AppError::InvalidInput(
+                    "The selected clip path cannot be added to a playlist.".to_owned(),
+                ));
+            }
+            continue;
+        }
+        if clip_id == selected_id {
+            selected_index = Some(paths.len());
+        }
+        paths.push(path);
     }
-    state.mpv.seek(session_id, seconds)
-}
 
-#[tauri::command]
-pub fn mpv_preview_seek(
-    session_id: u64,
-    seconds: f64,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
-    if !seconds.is_finite() {
-        return Err(AppError::InvalidInput("Invalid seek position.".to_owned()));
-    }
-    state.mpv.preview_seek(session_id, seconds)
-}
-
-#[tauri::command]
-pub fn mpv_set_volume(
-    session_id: u64,
-    volume: f64,
-    state: State<'_, AppState>,
-) -> AppResult<MpvSnapshot> {
-    if !volume.is_finite() {
-        return Err(AppError::InvalidInput("Invalid volume.".to_owned()));
-    }
-    state.mpv.set_volume(session_id, volume)
-}
-
-#[tauri::command]
-pub fn mpv_set_muted(
-    session_id: u64,
-    muted: bool,
-    state: State<'_, AppState>,
-) -> AppResult<MpvSnapshot> {
-    state.mpv.set_muted(session_id, muted)
-}
-
-#[tauri::command]
-pub fn mpv_stop(session_id: u64, state: State<'_, AppState>) -> AppResult<()> {
-    state.mpv.stop(session_id)
+    let selected_index = selected_index.ok_or_else(|| {
+        AppError::InvalidInput("The selected clip is not playable anymore.".to_owned())
+    })?;
+    Ok((paths, selected_index))
 }
 
 fn validate_clip_id(clip_id: &str) -> AppResult<()> {
     if clip_id.len() != 64 || !clip_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(AppError::InvalidInput("Invalid clip ID.".to_owned()));
+    }
+    Ok(())
+}
+
+fn validate_game_id(game_id: &str) -> AppResult<()> {
+    if game_id.is_empty()
+        || game_id.len() > 128
+        || !game_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return Err(AppError::InvalidInput("Invalid game ID.".to_owned()));
     }
     Ok(())
 }
@@ -328,4 +330,43 @@ fn safe_image_extension(path: &Path, bytes: &[u8]) -> AppResult<&'static str> {
     extension.ok_or_else(|| {
         AppError::InvalidInput("Valid JPG, PNG, and WebP files are supported.".to_owned())
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn playable_paths_skip_missing_neighbours_and_recalculate_the_start_index() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let selected = directory.path().join("selected.mp4");
+        let later = directory.path().join("later.mp4");
+        std::fs::write(&selected, b"selected").expect("selected clip");
+        std::fs::write(&later, b"later").expect("later clip");
+
+        let playlist = ClipPlaylist {
+            clips: vec![
+                ("missing".to_owned(), directory.path().join("missing.mp4")),
+                ("selected".to_owned(), selected.clone()),
+                ("later".to_owned(), later.clone()),
+            ],
+            selected_index: 1,
+        };
+
+        let (paths, selected_index) = playable_clip_paths(playlist).expect("playable paths");
+        assert_eq!(paths, vec![selected, later]);
+        assert_eq!(selected_index, 0);
+    }
+
+    #[test]
+    fn playable_paths_reject_a_missing_selected_clip() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let playlist = ClipPlaylist {
+            clips: vec![("selected".to_owned(), directory.path().join("missing.mp4"))],
+            selected_index: 0,
+        };
+
+        let error = playable_clip_paths(playlist).expect_err("missing selected clip");
+        assert!(error.to_string().contains("no longer available"));
+    }
 }

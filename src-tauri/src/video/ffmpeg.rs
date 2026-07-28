@@ -19,6 +19,20 @@ pub struct VideoInfo {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub codec: Option<String>,
+    pub audio_compatible: Option<bool>,
+    pub video_compatible: Option<bool>,
+    pub compatibility_resolved: bool,
+}
+
+impl VideoInfo {
+    fn resolved_incompatible() -> Self {
+        Self {
+            audio_compatible: Some(false),
+            video_compatible: Some(false),
+            compatibility_resolved: true,
+            ..Self::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -79,7 +93,7 @@ impl FfmpegTools {
                 "-print_format",
                 "json",
                 "-show_entries",
-                "format=duration:stream=codec_type,codec_name,width,height",
+                "format=duration:stream=codec_type,codec_name,profile,width,height,pix_fmt",
             ])
             .arg(path)
             .stdin(Stdio::null())
@@ -93,30 +107,12 @@ impl FfmpegTools {
             return VideoInfo::default();
         };
         if !status.success() {
-            return VideoInfo::default();
+            return VideoInfo::resolved_incompatible();
         }
         let Ok(value) = serde_json::from_slice::<Value>(&stdout) else {
-            return VideoInfo::default();
+            return VideoInfo::resolved_incompatible();
         };
-        let video = value["streams"].as_array().and_then(|streams| {
-            streams
-                .iter()
-                .find(|stream| stream["codec_type"] == "video")
-        });
-        VideoInfo {
-            duration_seconds: value["format"]["duration"]
-                .as_str()
-                .and_then(|value| value.parse().ok()),
-            width: video
-                .and_then(|stream| stream["width"].as_u64())
-                .map(|value| value as u32),
-            height: video
-                .and_then(|stream| stream["height"].as_u64())
-                .map(|value| value as u32),
-            codec: video
-                .and_then(|stream| stream["codec_name"].as_str())
-                .map(str::to_owned),
-        }
+        video_info_from_probe(&value)
     }
 
     pub fn thumbnail(&self, input: &Path, output: PathBuf) -> bool {
@@ -150,6 +146,45 @@ impl FfmpegTools {
             .ok()
             .and_then(|child| wait_for_child(child, THUMBNAIL_TIMEOUT))
             .is_some_and(|(status, _)| status.success())
+    }
+}
+
+fn video_info_from_probe(value: &Value) -> VideoInfo {
+    let streams = value["streams"].as_array();
+    let video = streams.and_then(|streams| {
+        streams
+            .iter()
+            .find(|stream| stream["codec_type"] == "video")
+    });
+    let audio_compatible = streams.map(|streams| {
+        streams
+            .iter()
+            .filter(|stream| stream["codec_type"] == "audio")
+            .all(|stream| {
+                stream["codec_name"].as_str() == Some("aac")
+                    && stream["profile"].as_str() == Some("LC")
+            })
+    });
+    let video_compatible = video.map(|stream| {
+        stream["codec_name"].as_str() == Some("h264")
+            && matches!(stream["pix_fmt"].as_str(), Some("yuv420p" | "yuvj420p"))
+    });
+    VideoInfo {
+        duration_seconds: value["format"]["duration"]
+            .as_str()
+            .and_then(|value| value.parse().ok()),
+        width: video
+            .and_then(|stream| stream["width"].as_u64())
+            .and_then(|value| u32::try_from(value).ok()),
+        height: video
+            .and_then(|stream| stream["height"].as_u64())
+            .and_then(|value| u32::try_from(value).ok()),
+        codec: video
+            .and_then(|stream| stream["codec_name"].as_str())
+            .map(str::to_owned),
+        audio_compatible,
+        video_compatible,
+        compatibility_resolved: true,
     }
 }
 
@@ -206,5 +241,66 @@ fn executable_name(base: &str) -> String {
         format!("{base}.exe")
     } else {
         base.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn accepts_conservative_html_media_profile() {
+        let info = video_info_from_probe(&json!({
+            "format": { "duration": "42.5" },
+            "streams": [
+                {
+                    "codec_type": "video",
+                    "codec_name": "h264",
+                    "pix_fmt": "yuv420p",
+                    "width": 3840,
+                    "height": 2160
+                },
+                { "codec_type": "audio", "codec_name": "aac", "profile": "LC" },
+                { "codec_type": "audio", "codec_name": "aac", "profile": "LC" }
+            ]
+        }));
+
+        assert_eq!(info.codec.as_deref(), Some("h264"));
+        assert_eq!(info.duration_seconds, Some(42.5));
+        assert_eq!(info.video_compatible, Some(true));
+        assert_eq!(info.audio_compatible, Some(true));
+        assert!(info.compatibility_resolved);
+    }
+
+    #[test]
+    fn rejects_hevc_high_chroma_and_unsupported_audio() {
+        for (codec, pixel_format, audio_codec, audio_profile) in [
+            ("hevc", "yuv420p", "aac", "LC"),
+            ("h264", "yuv444p", "aac", "LC"),
+            ("h264", "yuv420p", "opus", "unknown"),
+            ("h264", "yuv420p", "aac", "HE-AAC"),
+        ] {
+            let info = video_info_from_probe(&json!({
+                "format": { "duration": "10" },
+                "streams": [
+                    {
+                        "codec_type": "video",
+                        "codec_name": codec,
+                        "pix_fmt": pixel_format
+                    },
+                    {
+                        "codec_type": "audio",
+                        "codec_name": audio_codec,
+                        "profile": audio_profile
+                    }
+                ]
+            }));
+            assert_ne!(
+                (info.video_compatible, info.audio_compatible),
+                (Some(true), Some(true)),
+                "{codec}/{pixel_format}/{audio_codec}/{audio_profile} must not enter the HTML player"
+            );
+        }
     }
 }

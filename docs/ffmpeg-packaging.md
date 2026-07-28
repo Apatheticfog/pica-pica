@@ -1,6 +1,6 @@
 # FFmpeg packaging policy
 
-Pica Pica uses `ffprobe` to inspect clips and `ffmpeg` to create thumbnails. Playback does not use FFmpeg and does not create compatibility copies.
+Pica Pica uses `ffprobe` to inspect clips and `ffmpeg` to create thumbnails. Playback does not invoke these tools and does not create compatibility copies.
 
 ## Stable release requirements
 
@@ -15,7 +15,7 @@ The stable release pipeline must fail when either executable is missing. Develop
 
 ## Preview installers
 
-The manual `Desktop Preview` workflow uses immutable BtbN LGPL archives linked from FFmpeg's official download page. The release tag, archive names and SHA-256 digests are fixed in the workflow; a mismatch fails before extraction. Root-level upstream license and build-information files are packaged beside `ffmpeg` and `ffprobe`.
+The manual `Desktop Preview` workflow uses pinned BtbN LGPL archives from a fixed release identifier. The release identifier, archive names and SHA-256 digests are fixed in the workflow; a changed or replaced asset fails verification before extraction. Root-level upstream license and build-information files are packaged beside `ffmpeg` and `ffprobe`.
 
 This provides testable Windows and Linux installers without checking large third-party executables into Git. It does not replace the stricter stable-release goal of owning the build recipe, retaining corresponding source and producing an SBOM. See [ffmpeg-provenance.md](ffmpeg-provenance.md) for the exact preview inputs.
 

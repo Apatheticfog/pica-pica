@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { libraryClient } from "@/data/library-client";
 import type { ArtworkKind, BootstrapState, LibrarySnapshot, MetadataUpdate, ScanResult } from "@/types/library";
 
@@ -28,6 +28,18 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const libraryRevisionRef = useRef(0);
+  const activeScanCountRef = useRef(0);
+
+  const beginScanning = useCallback(() => {
+    activeScanCountRef.current += 1;
+    setScanning(true);
+  }, []);
+
+  const finishScanning = useCallback(() => {
+    activeScanCountRef.current = Math.max(0, activeScanCountRef.current - 1);
+    if (activeScanCountRef.current === 0) setScanning(false);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -35,21 +47,54 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       .bootstrap()
       .then((result) => {
         if (!active) return;
+        const bootstrapRevision = ++libraryRevisionRef.current;
         setBootstrap(result);
         setLibrary(result.library);
+        if (result.configured && result.ffmpegAvailable && result.mediaCompatibilityScanRequired) {
+          beginScanning();
+          void libraryClient
+            .scan()
+            .then(async (scanResult) => {
+              if (!active) return;
+              let nextLibrary = scanResult.library;
+              if (libraryRevisionRef.current !== bootstrapRevision) {
+                const reconciliationRevision = libraryRevisionRef.current;
+                nextLibrary = await libraryClient.snapshot();
+                if (!active || libraryRevisionRef.current !== reconciliationRevision) return;
+              }
+              libraryRevisionRef.current += 1;
+              setLibrary(nextLibrary);
+              setBootstrap((current) => ({
+                ...(current ?? result),
+                rootPath: nextLibrary.rootPath,
+                cachePath: nextLibrary.cachePath,
+                ffmpegAvailable: nextLibrary.ffmpegAvailable,
+                ffmpegSource: nextLibrary.ffmpegSource,
+                mediaCompatibilityScanRequired: false,
+                library: nextLibrary,
+              }));
+            })
+            .catch((cause) => {
+              if (active) setError(messageFrom(cause));
+            })
+            .finally(() => {
+              if (active) finishScanning();
+            });
+        }
       })
       .catch((cause) => active && setError(messageFrom(cause)))
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
     };
-  }, []);
+  }, [beginScanning, finishScanning]);
 
   const configure = useCallback(async (rootPath: string) => {
-    setScanning(true);
+    beginScanning();
     setError(null);
     try {
       const result = await libraryClient.configure(rootPath);
+      libraryRevisionRef.current += 1;
       setLibrary(result.library);
       setBootstrap({
         configured: true,
@@ -57,6 +102,7 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
         cachePath: result.library.cachePath,
         ffmpegAvailable: result.library.ffmpegAvailable,
         ffmpegSource: result.library.ffmpegSource,
+        mediaCompatibilityScanRequired: false,
         library: result.library,
       });
       return result;
@@ -64,35 +110,49 @@ export function LibraryProvider({ children }: { children: ReactNode }) {
       setError(messageFrom(cause));
       throw cause;
     } finally {
-      setScanning(false);
+      finishScanning();
     }
-  }, []);
+  }, [beginScanning, finishScanning]);
 
   const rescan = useCallback(async () => {
-    setScanning(true);
+    beginScanning();
     setError(null);
+    const scanRevision = libraryRevisionRef.current;
     try {
       const result = await libraryClient.scan();
-      setLibrary(result.library);
-      return result;
+      let nextLibrary = result.library;
+      if (libraryRevisionRef.current !== scanRevision) {
+        const reconciliationRevision = libraryRevisionRef.current;
+        nextLibrary = await libraryClient.snapshot();
+        if (libraryRevisionRef.current !== reconciliationRevision) return result;
+      }
+      libraryRevisionRef.current += 1;
+      setLibrary(nextLibrary);
+      return { ...result, library: nextLibrary };
     } catch (cause) {
       setError(messageFrom(cause));
       throw cause;
     } finally {
-      setScanning(false);
+      finishScanning();
     }
-  }, []);
+  }, [beginScanning, finishScanning]);
 
   const updateMetadata = useCallback(async (update: MetadataUpdate) => {
-    setLibrary(await libraryClient.updateMetadata(update));
+    const nextLibrary = await libraryClient.updateMetadata(update);
+    libraryRevisionRef.current += 1;
+    setLibrary(nextLibrary);
   }, []);
 
   const applyMetadata = useCallback(async (gameId: string, rawgId: string) => {
-    setLibrary(await libraryClient.applyMetadata(gameId, rawgId));
+    const nextLibrary = await libraryClient.applyMetadata(gameId, rawgId);
+    libraryRevisionRef.current += 1;
+    setLibrary(nextLibrary);
   }, []);
 
   const setCustomArtwork = useCallback(async (gameId: string, kind: ArtworkKind, sourcePath: string) => {
-    setLibrary(await libraryClient.setCustomArtwork(gameId, kind, sourcePath));
+    const nextLibrary = await libraryClient.setCustomArtwork(gameId, kind, sourcePath);
+    libraryRevisionRef.current += 1;
+    setLibrary(nextLibrary);
   }, []);
 
   const value = useMemo(

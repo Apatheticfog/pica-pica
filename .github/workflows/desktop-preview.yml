@@ -125,31 +125,6 @@ jobs:
           & .\src-tauri\binaries\ffmpeg.exe -version
           & .\src-tauri\binaries\ffprobe.exe -version
 
-      - name: Download and verify libmpv (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          MPV_ARCHIVE: mpv-dev-x86_64-20260421-git-5921fe5.7z
-          MPV_SHA256: 9dcda280322cfec168d42f5afa1a58691311e6aaf81b8a0dfddfa97a6209a5fa
-          MPV_RELEASE: "20260421"
-        run: |
-          $ErrorActionPreference = "Stop"
-          $ProgressPreference = "SilentlyContinue"
-          $downloadUrl = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$env:MPV_RELEASE/$env:MPV_ARCHIVE"
-          Invoke-WebRequest -Uri $downloadUrl -OutFile $env:MPV_ARCHIVE
-          $actualHash = (Get-FileHash -Algorithm SHA256 $env:MPV_ARCHIVE).Hash.ToLowerInvariant()
-          if ($actualHash -ne $env:MPV_SHA256) {
-            throw "libmpv checksum mismatch: expected $env:MPV_SHA256, got $actualHash"
-          }
-          New-Item -ItemType Directory -Force mpv-extract, src-tauri/binaries/mpv | Out-Null
-          & 7z x $env:MPV_ARCHIVE "-ompv-extract" -y | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "7-Zip could not extract libmpv" }
-          $dll = Get-ChildItem mpv-extract -Recurse -Filter libmpv-2.dll | Select-Object -First 1
-          if (-not $dll) { throw "libmpv archive did not contain libmpv-2.dll" }
-          Copy-Item $dll.FullName src-tauri/binaries/mpv/libmpv-2.dll
-          Copy-Item docs/libmpv-provenance.md src-tauri/binaries/mpv/LIBMPV-PROVENANCE.txt
-          Copy-Item LICENSE src-tauri/binaries/mpv/PICA-PICA-GPL-3.0.txt
-
       - name: Build unsigned preview installer
         run: pnpm tauri build --ci --no-sign --bundles ${{ matrix.bundle }}
 

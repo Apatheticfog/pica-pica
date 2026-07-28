@@ -32,8 +32,12 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "binaries/*": "bin/",
-      "binaries/mpv/*": "bin/mpv/"
+      "binaries/*": "bin/"
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": true
+      }
     },
     "linux": {
       "appimage": {

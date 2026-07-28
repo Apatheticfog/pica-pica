@@ -41,6 +41,10 @@ pub struct Clip {
     pub height: Option<u32>,
     pub codec: Option<String>,
     pub compatible: bool,
+    #[serde(skip, default)]
+    pub audio_compatible: Option<bool>,
+    #[serde(skip, default)]
+    pub video_compatible: Option<bool>,
     pub thumbnail_path: Option<String>,
 }
 
@@ -77,6 +81,8 @@ pub struct CachedClip {
     pub width: Option<u32>,
     pub height: Option<u32>,
     pub codec: Option<String>,
+    pub audio_compatible: Option<bool>,
+    pub video_compatible: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +119,7 @@ pub struct BootstrapState {
     pub cache_path: String,
     pub ffmpeg_available: bool,
     pub ffmpeg_source: String,
+    pub media_compatibility_scan_required: bool,
     pub library: Option<LibrarySnapshot>,
 }
 

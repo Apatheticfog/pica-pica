@@ -1,34 +1,20 @@
-export interface MpvAvailability {
+export type ExternalPlayer = "mpv" | "vlc";
+
+export interface ExternalPlayerStatus {
+  player: ExternalPlayer;
   available: boolean;
-  version: string | null;
   diagnostic: string | null;
 }
 
-export interface MpvViewport {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  visible: boolean;
-  cornerRadius: number;
-  clipTop: number;
-  clipBottom: number;
-  overlayX: number;
-  overlayY: number;
-  overlayWidth: number;
-  overlayHeight: number;
-  overlayRadius: number;
+export interface ExternalPlayerAvailability {
+  players: ExternalPlayerStatus[];
+  recommended: ExternalPlayer | null;
 }
 
-export interface MpvSnapshot {
+export interface ExternalPlaybackSession {
   sessionId: number;
-  status: "idle" | "loading" | "playing" | "paused" | "ended" | "error";
-  positionSeconds: number;
-  durationSeconds: number | null;
-  paused: boolean;
-  seeking: boolean;
-  volume: number;
-  muted: boolean;
-  mediaReady: boolean;
-  error: string | null;
+  player: ExternalPlayer;
+  processId: number;
+  playlistLength: number;
+  selectedIndex: number;
 }

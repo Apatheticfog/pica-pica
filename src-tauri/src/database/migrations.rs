@@ -57,6 +57,13 @@ CREATE INDEX IF NOT EXISTS clips_game_created_id_idx ON clips(game_id, created_a
 PRAGMA user_version = 3;
 "#;
 
+const HTML_MEDIA_SCHEMA: &str = r#"
+ALTER TABLE clips ADD COLUMN audio_compatible INTEGER;
+ALTER TABLE clips ADD COLUMN video_compatible INTEGER;
+UPDATE clips SET compatible = 0;
+PRAGMA user_version = 4;
+"#;
+
 pub fn migrate(connection: &Connection) -> AppResult<()> {
     let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version < 1 {
@@ -69,6 +76,10 @@ pub fn migrate(connection: &Connection) -> AppResult<()> {
     let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version < 3 {
         connection.execute_batch(PAGINATION_SCHEMA)?;
+    }
+    let version: i64 = connection.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if version < 4 {
+        connection.execute_batch(HTML_MEDIA_SCHEMA)?;
     }
     Ok(())
 }
@@ -85,6 +96,55 @@ mod tests {
         let version: i64 = connection
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .expect("version");
-        assert_eq!(version, 3);
+        assert_eq!(version, 4);
+    }
+
+    #[test]
+    fn version_four_invalidates_unprobed_native_compatibility() {
+        let connection = Connection::open_in_memory().expect("database");
+        connection
+            .execute_batch(INITIAL_SCHEMA)
+            .expect("initial schema");
+        connection
+            .execute_batch(PROVIDER_SCHEMA)
+            .expect("provider schema");
+        connection
+            .execute_batch(PAGINATION_SCHEMA)
+            .expect("pagination schema");
+        connection
+            .execute_batch(
+                r#"
+                INSERT INTO games(
+                  id, folder_path, folder_name, title, genres_json, metadata_status,
+                  accent_start, accent_end, updated_at
+                ) VALUES (
+                  'game', '/clips/Game', 'Game', 'Game', '[]', 'unresolved',
+                  '#111111', '#222222', 1
+                );
+                INSERT INTO clips(
+                  id, game_id, path, file_name, extension, size_bytes, created_at,
+                  codec, compatible, updated_at
+                ) VALUES (
+                  'clip', 'game', '/clips/Game/Replay.mp4', 'Replay.mp4', 'mp4',
+                  1024, 1, 'h264', 1, 1
+                );
+                "#,
+            )
+            .expect("version three fixture");
+
+        migrate(&connection).expect("version four migration");
+
+        let compatibility: (i64, Option<i64>, Option<i64>) = connection
+            .query_row(
+                "SELECT compatible, audio_compatible, video_compatible FROM clips WHERE id = 'clip'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("migrated clip");
+        assert_eq!(compatibility, (0, None, None));
+        let version: i64 = connection
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .expect("version");
+        assert_eq!(version, 4);
     }
 }

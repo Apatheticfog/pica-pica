@@ -12,7 +12,7 @@ Pica Pica treats 100 clips per game as ordinary use and targets libraries with a
 6. Rescans compare path-derived ID, file size and modification timestamp with cached probe data. Unchanged clips do not start `ffprobe` again.
 7. Changed files invalidate their old thumbnail. FFmpeg and ffprobe are killed after bounded timeouts.
 8. New or changed clips use at most four concurrent probe/thumbnail workers; unchanged clips do not start media subprocesses.
-9. Windows playback reads originals through libmpv, avoiding compatibility-copy CPU and storage costs.
+9. Compatible clips play directly through HTML5; other originals are handed to an external player, avoiding compatibility-copy CPU and storage costs.
 10. An incomplete directory walk never prunes database rows that were not observed during that failed scan.
 
 ## Performance invariants

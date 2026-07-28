@@ -14,7 +14,7 @@ Pica Pica turns local OBS Replay Buffer clips into a fast, private game library.
 - Optional RAWG metadata search and SteamGridDB artwork with user-owned API keys
 - Custom poster and hero overrides copied into the local cache
 - Safe unresolved-game workflow with editable local metadata
-- Embedded libmpv playback on Windows for HEVC, multiple audio tracks, and other OBS formats without conversion
+- HTML5 playback for compatible H.264/AVC and AAC-LC clips, with external VLC or mpv playlists for every other format
 - Browser demo adapter for frontend development without private clip data
 - Reduced-motion support, keyboard focus states, and responsive player layout
 
@@ -26,11 +26,15 @@ The local vertical slice is implemented: onboarding → folder scan → game gal
 
 - Node.js 22 or newer
 - pnpm 11 or newer
-- Rust stable (1.77.2 minimum; current stable recommended)
+- Rust stable 1.85 or newer (current stable recommended)
 - Platform-specific [Tauri prerequisites](https://v2.tauri.app/start/prerequisites/)
 - Optional for development: `ffmpeg` and `ffprobe` on `PATH`; release builds bundle vetted binaries
 
-Windows preview builds include libmpv and play local clips directly without creating compatibility copies. This covers HEVC independently of the WebView codecs and automatically mixes every audio stream in multi-track OBS recordings. Linux currently keeps the browser-compatible fallback player while a native Render API backend is developed.
+Compatible MP4/M4V/MOV clips encoded as H.264/AVC with an 8-bit 4:2:0 pixel format and AAC-LC audio play directly in the application through the platform WebView. HEVC, MKV, 10-bit video, unusual audio codecs, and clips that fail WebView playback can be handed to an installed VLC or mpv player as an ordered game playlist. Pica Pica never transcodes originals or creates large compatibility copies.
+
+For the most predictable in-app playback, configure future OBS recordings as H.264/AVC with AAC-LC audio and put the complete listening mix on audio track 1. Additional isolated AAC-LC tracks can remain in the recording for editing, but Pica Pica does not mix those tracks inside the HTML player. Install VLC or mpv when you want to play older or less compatible clips without conversion.
+
+After upgrading an existing library to this playback model, Pica Pica automatically rescans pending compatibility rows in the background with at most four media workers. Existing thumbnails and cached file metadata are reused, database rows are updated in place, and original clips remain untouched. If FFmpeg/ffprobe is unavailable during development, pending rows are retried after the tools become available.
 
 ## Development
 
@@ -51,8 +55,8 @@ Quality checks:
 pnpm check
 cd src-tauri
 cargo fmt --all -- --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked
 ```
 
 Build the desktop executable without packaging an installer:
@@ -70,7 +74,7 @@ The manual `Desktop Preview` GitHub Actions workflow builds two unsigned test pa
 
 Open the repository's **Actions** tab, select **Desktop Preview**, choose **Run workflow**, and download the resulting artifact after both jobs finish. Preview artifacts are retained for seven days.
 
-Tagged versions are also published on the repository's [Releases page](https://github.com/Mortisshadow/pica-pica/releases). Preview releases remain unsigned, so Windows may display a SmartScreen warning. Release packages bundle pinned FFmpeg/ffprobe binaries and, on Windows, libmpv. The workflows verify fixed SHA-256 digests before packaging, include provenance records, and ship a `SHA256SUMS.txt` file for the finished installers. The maintainer procedure is documented in [docs/releasing.md](docs/releasing.md).
+Tagged versions are also published on the repository's [Releases page](https://github.com/Mortisshadow/pica-pica/releases). Preview releases remain unsigned, so Windows may display a SmartScreen warning. Release packages bundle pinned FFmpeg/ffprobe binaries for probing and thumbnails; VLC and mpv are never downloaded or bundled and must already be installed for external playback. The workflows verify fixed SHA-256 digests before packaging, include provenance records, and ship a `SHA256SUMS.txt` file for the finished installers. The maintainer procedure is documented in [docs/releasing.md](docs/releasing.md).
 
 ### Installing on Linux
 
@@ -107,6 +111,7 @@ Pica Pica app data/
 ├── library.sqlite
 └── cache/
     ├── artwork/
+    ├── external-playlists/  # temporary while an external player is managed
     ├── metadata/
     └── thumbnails/
 ```
@@ -122,7 +127,7 @@ Pica Pica app data/
 - `src-tauri/src/database` — SQLite access and migrations
 - `src-tauri/src/metadata` — provider abstraction and offline starter catalog
 - `src-tauri/src/video` — FFmpeg/ffprobe adapter
-- `src-tauri/src/player` — embedded libmpv adapter and native Windows video surface
+- `src-tauri/src/player` — external VLC/mpv discovery and ordered playlist hand-off
 
 See [docs/architecture.md](docs/architecture.md) for design decisions and extension points.
 See [docs/scalability.md](docs/scalability.md) for the large-library data flow, performance boundaries and remaining background-job work.

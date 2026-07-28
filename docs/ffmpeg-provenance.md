@@ -9,11 +9,11 @@ Pica Pica preview installers bundle the `ffmpeg` and `ffprobe` command-line exec
 - FFmpeg revision: `94138f6973`
 - Build provider: BtbN/FFmpeg-Builds
 - Build scripts: <https://github.com/BtbN/FFmpeg-Builds>
-- Immutable release: `autobuild-2026-07-18-13-13`
+- Pinned release identifier: `autobuild-2026-07-18-13-13`
 - Release URL: <https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-07-18-13-13>
 - Variant: FFmpeg 8.1, x86-64, static LGPL build
 
-The FFmpeg project links BtbN as a Windows binary provider from its official download page. Pica Pica nevertheless treats the archive as untrusted input and verifies its immutable GitHub asset digest before extraction.
+The FFmpeg project links BtbN as a Windows binary provider from its official download page. Pica Pica nevertheless treats the archive as untrusted input and verifies the pinned SHA-256 digest before extraction.
 
 ## Verified archives
 

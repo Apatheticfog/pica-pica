@@ -43,7 +43,8 @@ export function VideoPlayer({
   const nextClip = selectedIndex >= 0 ? clips[selectedIndex + 1] ?? null : null;
   const videoUrl = libraryClient.assetUrl(selected?.compatible ? selected.path : null);
   const posterUrl = libraryClient.assetUrl(selected?.thumbnailPath ?? null);
-  const nativePlaybackError = playbackError?.clipId === selected?.id ? playbackError.message : null;
+  const nativePlaybackError =
+    playbackError && playbackError.clipId === selected?.id ? playbackError.message : null;
 
   const selectNextClip = async () => {
     if (nextClip) {

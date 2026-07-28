@@ -14,7 +14,11 @@ import type {
   ProviderSettings,
   ScanResult,
 } from "@/types/library";
-import type { MpvAvailability, MpvSnapshot, MpvViewport } from "@/types/player";
+import type {
+  ExternalPlaybackSession,
+  ExternalPlayer,
+  ExternalPlayerAvailability,
+} from "@/types/player";
 
 const pause = (duration = 350) => new Promise((resolve) => window.setTimeout(resolve, duration));
 
@@ -73,47 +77,26 @@ export const libraryClient = {
     return invoke<ClipPage>("get_game_clips", { gameId, cursor, limit });
   },
 
-  async mpvAvailability(): Promise<MpvAvailability> {
-    if (!isTauri()) return { available: false, version: null, diagnostic: "Embedded libmpv is available in the Windows desktop build." };
-    return invoke<MpvAvailability>("get_mpv_availability");
+  async externalPlayerAvailability(): Promise<ExternalPlayerAvailability> {
+    if (!isTauri()) {
+      return {
+        players: [
+          { player: "mpv", available: false, diagnostic: "External playback is available in the desktop app." },
+          { player: "vlc", available: false, diagnostic: "External playback is available in the desktop app." },
+        ],
+        recommended: null,
+      };
+    }
+    return invoke<ExternalPlayerAvailability>("get_external_player_availability");
   },
 
-  async mpvLoad(clipId: string, sessionId: number): Promise<MpvSnapshot> {
-    return invoke<MpvSnapshot>("mpv_load_clip", { clipId, sessionId });
+  async openExternalPlaylist(gameId: string, clipId: string, player: ExternalPlayer): Promise<ExternalPlaybackSession> {
+    return invoke<ExternalPlaybackSession>("open_external_playlist", { gameId, clipId, player });
   },
 
-  async mpvViewport(viewport: MpvViewport): Promise<void> {
+  async stopExternalPlayer(sessionId: number): Promise<void> {
     if (!isTauri()) return;
-    return invoke<void>("mpv_set_viewport", { viewport });
-  },
-
-  async mpvSnapshot(): Promise<MpvSnapshot> {
-    return invoke<MpvSnapshot>("get_mpv_snapshot");
-  },
-
-  async mpvPaused(sessionId: number, paused: boolean): Promise<MpvSnapshot> {
-    return invoke<MpvSnapshot>("mpv_set_paused", { sessionId, paused });
-  },
-
-  async mpvSeek(sessionId: number, seconds: number): Promise<MpvSnapshot> {
-    return invoke<MpvSnapshot>("mpv_seek", { sessionId, seconds });
-  },
-
-  async mpvPreviewSeek(sessionId: number, seconds: number): Promise<void> {
-    return invoke<void>("mpv_preview_seek", { sessionId, seconds });
-  },
-
-  async mpvVolume(sessionId: number, volume: number): Promise<MpvSnapshot> {
-    return invoke<MpvSnapshot>("mpv_set_volume", { sessionId, volume });
-  },
-
-  async mpvMuted(sessionId: number, muted: boolean): Promise<MpvSnapshot> {
-    return invoke<MpvSnapshot>("mpv_set_muted", { sessionId, muted });
-  },
-
-  async mpvStop(sessionId: number): Promise<void> {
-    if (!isTauri()) return;
-    return invoke<void>("mpv_stop", { sessionId });
+    return invoke<void>("stop_external_player", { sessionId });
   },
 
   async setFullscreen(fullscreen: boolean): Promise<void> {

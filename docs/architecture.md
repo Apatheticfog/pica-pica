@@ -2,7 +2,7 @@
 
 ## Boundaries
 
-Pica Pica keeps trusted filesystem traversal, persistence, video probing, thumbnail generation, and playback control in Rust. The frontend talks to that boundary through a small typed client in `src/data/library-client.ts`.
+Pica Pica keeps trusted filesystem traversal, persistence, video probing, thumbnail generation, and external-player hand-off in Rust. React and the platform WebView own compatible in-app playback and its control surface. The frontend reaches native operations through a small typed client in `src/data/library-client.ts`.
 
 The browser demo adapter is selected only when the Tauri runtime is absent. It lets contributors build and review the interface without granting filesystem access or sharing private media.
 
@@ -24,14 +24,18 @@ The scanner compares the stable path ID, file size and modification time with th
 
 `FfmpegTools` is the only module that invokes `ffmpeg` or `ffprobe`. It first checks the installed resource directory for bundled tools and then falls back to `PATH` for development. If neither pair is available, scanning remains functional and the UI uses generated artwork fallbacks.
 
-Original video files are never passed as FFmpeg outputs. Thumbnail output always targets the application cache and is finalized through a temporary file.
+Original video files are never passed as FFmpeg outputs. Thumbnail output targets only the application cache and never overwrites source media.
 Probe, thumbnail, and tool-detection processes have fixed timeouts and are killed and reaped if they stop responding. On Windows, every media subprocess uses `CREATE_NO_WINDOW` so scans do not flash console windows.
 
 ## Playback
 
-Windows uses libmpv in-process. Rust creates an input-disabled, non-activating child Win32 surface inside the Tauri window, passes its handle to libmpv before initialization, and disables libmpv's own cursor handling. React measures the reserved player rectangle in physical pixels and keeps the native surface aligned while scrolling or resizing. This keeps wheel, pointer, and focus ownership in the WebView. In windowed playback, controls remain directly below the native surface. Fullscreen keeps the native video at full-window geometry and subtracts only the rounded, floating shadcn control pill from its Win32 region, so the controls can fade above the picture without resizing or covering it with a separate background layer.
+Playback is deliberately split by capability rather than by operating system. MP4/M4V/MOV clips probed as H.264/AVC with an 8-bit 4:2:0 pixel format and AAC-LC audio when present use the WebView's native HTML5 video element and the shared shadcn control surface. The element reports runtime decode errors, so a file that passes the conservative probe can still fall back cleanly instead of leaving a broken player.
 
-libmpv reads the original clip directly, so HEVC and multiple audio tracks do not require large cached conversions. Each file load disables resume state, requests `start=0`, pauses while the new track list is prepared, seeks exactly to zero after the automatic audio mix is installed, and only then exposes the new native surface. When a clip exposes multiple audio streams, the player builds one mix automatically; there is no per-clip audio-selection state in React. Session identifiers reject stale controls after rapidly switching clips, and the native surface is hidden while it is loading, off-screen, or a modal is open. Linux currently uses the browser-compatible fallback; a native Linux implementation will require a platform Render API surface rather than the Windows child-window path.
+The media profile is cached separately from the older container/codec flag. A schema upgrade invalidates legacy compatibility rows, and bootstrap requests an automatic background rescan when such rows remain and FFmpeg/ffprobe is available. Existing thumbnails and non-compatibility metadata remain cached while media work is limited to four concurrent workers. Rows stay pending while the tools are unavailable; successfully probed unsupported or malformed files are cached as external-only, avoiding repeat probes on every later scan.
+
+Other formats are handed to an installed VLC or mpv executable. Rust resolves known installation locations and `PATH` entries without invoking a shell, validates the requested game and clip against SQLite, writes an application-owned temporary playlist, and launches the player with the selected clip at the front of the playable sequence. mpv receives an explicit playlist start index and a clean configuration so user shaders and scripts are not inherited. VLC receives the selected clip followed by the remaining queue because its desktop command line has no equally reliable cross-platform start-index contract.
+
+Pica Pica does not download or bundle either external player. This keeps media decoding outside the WebView for incompatible files without making an unreviewed player build part of the installer. It also removes the native child-window, viewport synchronization, and fullscreen layering paths from Pica Pica. A separate process cannot isolate a kernel-level display-driver failure, so VLC and mpv remain explicit user choices rather than a claim of GPU fault containment.
 
 ## Metadata
 

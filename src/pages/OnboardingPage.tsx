@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, ChevronRight, FolderHeart, FolderOpen, LockKeyhole, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, ChevronRight, FolderHeart, FolderOpen, LockKeyhole, MonitorPlay, Sparkles } from "lucide-react";
 import { motion } from "motion/react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -94,6 +94,14 @@ export function OnboardingPage() {
             </Item>
 
             {error ? <Alert variant="destructive" className="mt-4"><AlertTriangle className="mt-0.5 size-4" /><AlertTitle>Could not read folder</AlertTitle><AlertDescription>{error}</AlertDescription></Alert> : null}
+
+            <Alert className="mt-4">
+              <MonitorPlay className="mt-0.5 size-4" />
+              <AlertTitle>Recommended for future OBS clips</AlertTitle>
+              <AlertDescription>
+                H.264/AVC with AAC-LC plays inside Pica Pica. Put your complete listening mix on audio track 1; older HEVC or unusual clips can stay untouched and open in VLC or mpv.
+              </AlertDescription>
+            </Alert>
 
             <Button size="lg" className="mt-5 w-full" disabled={!selectedPath || scanning} onClick={continueSetup}>
               {scanning ? <Spinner /> : null}

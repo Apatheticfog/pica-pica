@@ -63,6 +63,7 @@ export interface BootstrapState {
   cachePath: string;
   ffmpegAvailable: boolean;
   ffmpegSource: "bundled" | "system" | "missing" | string;
+  mediaCompatibilityScanRequired: boolean;
   library: LibrarySnapshot | null;
 }
 

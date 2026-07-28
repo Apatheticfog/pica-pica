@@ -62,6 +62,16 @@ fn is_supported_video(path: &Path) -> bool {
     extension(path).is_some_and(|extension| VIDEO_EXTENSIONS.contains(&extension.as_str()))
 }
 
+fn is_html_video(
+    extension: &str,
+    video_compatible: Option<bool>,
+    audio_compatible: Option<bool>,
+) -> bool {
+    matches!(extension, "mp4" | "m4v" | "mov")
+        && video_compatible == Some(true)
+        && audio_compatible == Some(true)
+}
+
 fn display_path(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
@@ -83,19 +93,45 @@ fn process_clip(
     let path = &work.path;
     let clip_id = stable_id(path);
     let ext = extension(path).unwrap_or_default();
-    let (video_info, probed, reused) = if let Some(cached) = &work.cached {
+    let cached_compatibility = work.cached.as_ref().filter(|cached| {
+        cached.audio_compatible.is_some() && cached.video_compatible.is_some()
+    });
+    let (video_info, probed, reused) = if let Some(cached) = cached_compatibility {
         (
             crate::video::VideoInfo {
                 duration_seconds: cached.duration_seconds,
                 width: cached.width,
                 height: cached.height,
                 codec: cached.codec.clone(),
+                audio_compatible: cached.audio_compatible,
+                video_compatible: cached.video_compatible,
+                compatibility_resolved: true,
             },
             false,
             true,
         )
     } else {
-        (ffmpeg.probe(path), true, false)
+        let mut video_info = ffmpeg.probe(path);
+        if let Some(cached) = &work.cached {
+            video_info.duration_seconds = video_info.duration_seconds.or(cached.duration_seconds);
+            video_info.width = video_info.width.or(cached.width);
+            video_info.height = video_info.height.or(cached.height);
+            if video_info.codec.is_none() {
+                video_info.codec.clone_from(&cached.codec);
+            }
+            if !video_info.compatibility_resolved {
+                video_info.audio_compatible = cached.audio_compatible;
+                video_info.video_compatible = cached.video_compatible;
+            }
+        }
+        if video_info.compatibility_resolved {
+            // A completed but malformed/unsupported probe is still a durable
+            // external-playback result. Cache it instead of retrying the same
+            // unchanged file during every scan.
+            video_info.audio_compatible.get_or_insert(false);
+            video_info.video_compatible.get_or_insert(false);
+        }
+        (video_info, true, false)
     };
     let thumbnail_path = cache_path.join("thumbnails").join(format!("{clip_id}.jpg"));
     if work.cached.is_none() {
@@ -105,11 +141,11 @@ fn process_clip(
     let thumbnail = thumbnail_path
         .exists()
         .then(|| display_path(&thumbnail_path));
-    let compatible = matches!(ext.as_str(), "mp4" | "m4v" | "mov")
-        && video_info
-            .codec
-            .as_deref()
-            .is_none_or(|codec| codec == "h264");
+    let compatible = is_html_video(
+        &ext,
+        video_info.video_compatible,
+        video_info.audio_compatible,
+    );
 
     ProcessedClip {
         clip: Clip {
@@ -129,6 +165,8 @@ fn process_clip(
             height: video_info.height,
             codec: video_info.codec,
             compatible,
+            audio_compatible: video_info.audio_compatible,
+            video_compatible: video_info.video_compatible,
             thumbnail_path: thumbnail,
         },
         probed,
@@ -281,6 +319,17 @@ mod tests {
     }
 
     #[test]
+    fn only_marks_probed_h264_mp4_family_clips_for_html_playback() {
+        assert!(is_html_video("mp4", Some(true), Some(true)));
+        assert!(is_html_video("mov", Some(true), Some(true)));
+        assert!(!is_html_video("mkv", Some(true), Some(true)));
+        assert!(!is_html_video("mp4", Some(false), Some(true)));
+        assert!(!is_html_video("mp4", Some(true), Some(false)));
+        assert!(!is_html_video("mp4", Some(true), None));
+        assert!(!is_html_video("mp4", None, Some(true)));
+    }
+
+    #[test]
     fn media_workers_are_bounded() {
         assert_eq!(media_worker_count(0), 1);
         assert!(media_worker_count(10_000) <= MAX_MEDIA_WORKERS);
@@ -324,6 +373,8 @@ mod tests {
                 width: Some(1920),
                 height: Some(1080),
                 codec: Some("h264".to_owned()),
+                audio_compatible: Some(true),
+                video_compatible: Some(true),
             },
         );
 
@@ -338,5 +389,47 @@ mod tests {
         assert_eq!(output.clips_reused, 1);
         assert_eq!(output.clips_probed, 0);
         assert_eq!(output.games[0].clips[0].duration_seconds, Some(42.5));
+    }
+
+    #[test]
+    fn compatibility_upgrade_keeps_an_unchanged_clips_thumbnail_and_metadata() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let replay = directory.path().join("Replay.mp4");
+        std::fs::write(&replay, b"stable fixture").expect("write fixture");
+        let cache_path = directory.path().join("cache");
+        let thumbnail_directory = cache_path.join("thumbnails");
+        std::fs::create_dir_all(&thumbnail_directory).expect("thumbnail directory");
+        let thumbnail_path = thumbnail_directory.join(format!("{}.jpg", stable_id(&replay)));
+        std::fs::write(&thumbnail_path, b"existing thumbnail").expect("thumbnail");
+        let metadata = replay.metadata().expect("metadata");
+        let work = ClipWork {
+            path: replay,
+            size_bytes: metadata.len(),
+            created_at: timestamp(metadata.modified().expect("modified")),
+            cached: Some(CachedClip {
+                size_bytes: metadata.len(),
+                created_at: timestamp(metadata.modified().expect("modified")),
+                duration_seconds: Some(42.5),
+                width: Some(1920),
+                height: Some(1080),
+                codec: Some("h264".to_owned()),
+                audio_compatible: None,
+                video_compatible: None,
+            }),
+        };
+
+        let processed = process_clip(
+            &work,
+            "game",
+            &cache_path,
+            &FfmpegTools::unavailable(),
+        );
+
+        assert!(thumbnail_path.exists());
+        assert!(!processed.thumbnail_created);
+        assert!(processed.probed);
+        assert!(!processed.reused);
+        assert_eq!(processed.clip.duration_seconds, Some(42.5));
+        assert_eq!(processed.clip.codec.as_deref(), Some("h264"));
     }
 }

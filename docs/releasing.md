@@ -22,6 +22,8 @@ The workflow builds and attaches:
 
 Each installer contains the pinned FFmpeg and ffprobe build, its upstream notices, and the local provenance record. The workflow verifies the downloaded FFmpeg archive before packaging.
 
+VLC and mpv are not part of the installer. External playback uses an installation already present on the user's system.
+
 ## Signing status
 
 Preview packages are currently unsigned. Windows may show a SmartScreen warning. Do not publish a stable release until the signing and release-key process is documented and tested.

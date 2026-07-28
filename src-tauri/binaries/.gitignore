@@ -1,6 +1,3 @@
 *
 !.gitignore
 !README.md
-!mpv/
-mpv/*
-!mpv/README.md

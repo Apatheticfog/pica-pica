@@ -1,4 +1,4 @@
-import { CheckCircle2, Database, ExternalLink, FolderOpen, HardDrive, KeyRound, ShieldCheck, Video } from "lucide-react";
+import { CheckCircle2, Database, ExternalLink, FolderOpen, HardDrive, KeyRound, MonitorPlay, ShieldCheck, Video } from "lucide-react";
 import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { PageContainer, PageHeading } from "@/components/layout/PageContainer";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -65,6 +65,7 @@ export function SettingsPage() {
     { icon: FolderOpen, label: "Library folder", value: library?.rootPath ?? "Not configured" },
     { icon: Database, label: "Local cache", value: library?.cachePath ?? "—" },
     { icon: Video, label: "FFmpeg", value: ffmpegLabel },
+    { icon: MonitorPlay, label: "Playback", value: "H.264/AVC + AAC-LC plays in app; installed VLC or mpv handles other formats" },
     { icon: HardDrive, label: "Storage mode", value: "Local app data; original clips remain untouched" },
   ];
 
@@ -80,20 +81,20 @@ export function SettingsPage() {
           </CardHeader>
           <CardContent>
             <ItemGroup className="-mx-4">
-            {rows.map(({ icon: Icon, label, value }, index) => (
-              <Fragment key={label}>
-                <Item role="listitem" className="gap-3.5 border-0 px-4 py-3.5">
-                  <ItemMedia variant="icon" className="size-10 self-center! translate-y-0! rounded-xl border-0">
-                    <Icon className="size-4 text-primary" />
-                  </ItemMedia>
-                  <ItemContent className="min-w-0 gap-0.5">
-                    <ItemTitle className="font-semibold leading-4">{label}</ItemTitle>
-                    <ItemDescription className="line-clamp-none break-all text-xs leading-4">{value}</ItemDescription>
-                  </ItemContent>
-                </Item>
-                {index < rows.length - 1 ? <ItemSeparator className="mx-4 w-auto" /> : null}
-              </Fragment>
-            ))}
+              {rows.map(({ icon: Icon, label, value }, index) => (
+                <Fragment key={label}>
+                  <Item role="listitem" className="gap-3.5 border-0 px-4 py-3.5">
+                    <ItemMedia variant="icon" className="size-10 self-center! translate-y-0! rounded-xl border-0">
+                      <Icon className="size-4 text-primary" />
+                    </ItemMedia>
+                    <ItemContent className="min-w-0 gap-0.5">
+                      <ItemTitle className="font-semibold leading-4">{label}</ItemTitle>
+                      <ItemDescription className="line-clamp-none break-words text-xs leading-4">{value}</ItemDescription>
+                    </ItemContent>
+                  </Item>
+                  {index < rows.length - 1 ? <ItemSeparator className="mx-4 w-auto" /> : null}
+                </Fragment>
+              ))}
             </ItemGroup>
           </CardContent>
         </Card>

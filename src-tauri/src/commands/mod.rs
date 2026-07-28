@@ -104,9 +104,7 @@ pub async fn scan_library(state: State<'_, AppState>) -> AppResult<ScanResult> {
 }
 
 #[tauri::command]
-pub fn get_external_player_availability(
-    state: State<'_, AppState>,
-) -> ExternalPlayerAvailability {
+pub fn get_external_player_availability(state: State<'_, AppState>) -> ExternalPlayerAvailability {
     state.external_player.availability()
 }
 
@@ -131,10 +129,7 @@ pub async fn open_external_playlist(
 }
 
 #[tauri::command]
-pub async fn stop_external_player(
-    session_id: u64,
-    state: State<'_, AppState>,
-) -> AppResult<()> {
+pub async fn stop_external_player(session_id: u64, state: State<'_, AppState>) -> AppResult<()> {
     let external_player = state.external_player.clone();
     tauri::async_runtime::spawn_blocking(move || external_player.stop(session_id))
         .await
@@ -367,10 +362,7 @@ mod tests {
     fn playable_paths_reject_a_missing_selected_clip() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let playlist = ClipPlaylist {
-            clips: vec![(
-                "selected".to_owned(),
-                directory.path().join("missing.mp4"),
-            )],
+            clips: vec![("selected".to_owned(), directory.path().join("missing.mp4"))],
             selected_index: 0,
         };
 

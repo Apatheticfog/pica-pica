@@ -8,10 +8,10 @@ mod player;
 mod video;
 
 use commands::{
-    AppState, apply_game_metadata, configure_library, get_bootstrap, get_game_clips, get_library,
-    get_external_player_availability, get_provider_settings, open_external_playlist,
-    save_provider_api_key, scan_library, search_game_metadata, set_custom_artwork,
-    stop_external_player, update_game_metadata,
+    AppState, apply_game_metadata, configure_library, get_bootstrap,
+    get_external_player_availability, get_game_clips, get_library, get_provider_settings,
+    open_external_playlist, save_provider_api_key, scan_library, search_game_metadata,
+    set_custom_artwork, stop_external_player, update_game_metadata,
 };
 use database::Database;
 use metadata::OnlineMetadataService;

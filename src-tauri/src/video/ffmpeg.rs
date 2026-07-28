@@ -167,10 +167,7 @@ fn video_info_from_probe(value: &Value) -> VideoInfo {
     });
     let video_compatible = video.map(|stream| {
         stream["codec_name"].as_str() == Some("h264")
-            && matches!(
-                stream["pix_fmt"].as_str(),
-                Some("yuv420p" | "yuvj420p")
-            )
+            && matches!(stream["pix_fmt"].as_str(), Some("yuv420p" | "yuvj420p"))
     });
     VideoInfo {
         duration_seconds: value["format"]["duration"]

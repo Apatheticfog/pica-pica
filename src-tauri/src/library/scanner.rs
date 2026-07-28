@@ -93,9 +93,10 @@ fn process_clip(
     let path = &work.path;
     let clip_id = stable_id(path);
     let ext = extension(path).unwrap_or_default();
-    let cached_compatibility = work.cached.as_ref().filter(|cached| {
-        cached.audio_compatible.is_some() && cached.video_compatible.is_some()
-    });
+    let cached_compatibility = work
+        .cached
+        .as_ref()
+        .filter(|cached| cached.audio_compatible.is_some() && cached.video_compatible.is_some());
     let (video_info, probed, reused) = if let Some(cached) = cached_compatibility {
         (
             crate::video::VideoInfo {
@@ -418,12 +419,7 @@ mod tests {
             }),
         };
 
-        let processed = process_clip(
-            &work,
-            "game",
-            &cache_path,
-            &FfmpegTools::unavailable(),
-        );
+        let processed = process_clip(&work, "game", &cache_path, &FfmpegTools::unavailable());
 
         assert!(thumbnail_path.exists());
         assert!(!processed.thumbnail_created);

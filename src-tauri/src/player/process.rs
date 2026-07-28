@@ -32,12 +32,7 @@ impl ManagedPlayerProcess {
             ExternalPlayerKind::Vlc => (&paths[selected_index..], 0),
         };
         let playlist_path = write_playlist(playlist_directory, playlist_paths)?;
-        let mut command = player_command(
-            player,
-            executable,
-            &playlist_path,
-            player_start_index,
-        );
+        let mut command = player_command(player, executable, &playlist_path, player_start_index);
         configure_background_process(&mut command);
 
         let mut child = match command.spawn() {
@@ -304,8 +299,8 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let directory = tempfile::tempdir().expect("temporary directory");
-        let path = write_playlist(directory.path(), &[PathBuf::from("/clips/a.mp4")])
-            .expect("playlist");
+        let path =
+            write_playlist(directory.path(), &[PathBuf::from("/clips/a.mp4")]).expect("playlist");
         let mode = path
             .metadata()
             .expect("playlist metadata")

@@ -180,12 +180,8 @@ impl Database {
                     width: row.get(4)?,
                     height: row.get(5)?,
                     codec: row.get(6)?,
-                    audio_compatible: row
-                        .get::<_, Option<i64>>(7)?
-                        .map(|value| value != 0),
-                    video_compatible: row
-                        .get::<_, Option<i64>>(8)?
-                        .map(|value| value != 0),
+                    audio_compatible: row.get::<_, Option<i64>>(7)?.map(|value| value != 0),
+                    video_compatible: row.get::<_, Option<i64>>(8)?.map(|value| value != 0),
                 },
             ))
         })?;
@@ -438,12 +434,8 @@ fn clip_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Clip> {
         height: row.get(9)?,
         codec: row.get(10)?,
         compatible: row.get::<_, i64>(11)? != 0,
-        audio_compatible: row
-            .get::<_, Option<i64>>(12)?
-            .map(|value| value != 0),
-        video_compatible: row
-            .get::<_, Option<i64>>(13)?
-            .map(|value| value != 0),
+        audio_compatible: row.get::<_, Option<i64>>(12)?.map(|value| value != 0),
+        video_compatible: row.get::<_, Option<i64>>(13)?.map(|value| value != 0),
         thumbnail_path: row.get(14)?,
     })
 }
@@ -527,18 +519,15 @@ mod tests {
     fn compatibility_scan_flag_tracks_pending_rows() {
         let temp = tempfile::tempdir().expect("temp dir");
         let database = Database::open(&temp.path().join("app")).expect("database");
-        assert!(!database
-            .media_compatibility_scan_required()
-            .expect("empty compatibility state"));
+        assert!(
+            !database
+                .media_compatibility_scan_required()
+                .expect("empty compatibility state")
+        );
 
         let root = temp.path().join("clips");
         let mut game = sample_game(&root);
-        let mut clip = sample_clip(
-            &game.id,
-            &root.join("Game").join("Replay.mp4"),
-            "clip",
-            100,
-        );
+        let mut clip = sample_clip(&game.id, &root.join("Game").join("Replay.mp4"), "clip", 100);
         clip.compatible = false;
         clip.audio_compatible = None;
         clip.video_compatible = None;
@@ -547,9 +536,11 @@ mod tests {
         database
             .persist_scan(&root, &[game.clone()], 100, true)
             .expect("pending scan");
-        assert!(database
-            .media_compatibility_scan_required()
-            .expect("pending compatibility state"));
+        assert!(
+            database
+                .media_compatibility_scan_required()
+                .expect("pending compatibility state")
+        );
 
         clip.audio_compatible = Some(false);
         clip.video_compatible = Some(false);
@@ -557,9 +548,11 @@ mod tests {
         database
             .persist_scan(&root, &[game], 200, true)
             .expect("resolved scan");
-        assert!(!database
-            .media_compatibility_scan_required()
-            .expect("resolved compatibility state"));
+        assert!(
+            !database
+                .media_compatibility_scan_required()
+                .expect("resolved compatibility state")
+        );
     }
 
     #[test]
@@ -684,9 +677,7 @@ mod tests {
             .persist_scan(&root, &[game], 100, true)
             .expect("scan");
 
-        let playlist = database
-            .clip_playlist("game", "clip-a")
-            .expect("playlist");
+        let playlist = database.clip_playlist("game", "clip-a").expect("playlist");
         assert_eq!(
             playlist
                 .clips

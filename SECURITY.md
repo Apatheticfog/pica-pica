@@ -14,7 +14,7 @@ Until a private GitHub security advisory channel is configured, do not publish e
 - FFmpeg is invoked directly without a shell and with fixed argument structure.
 - Preview packages are built in GitHub Actions, remain unsigned, and are published with SHA-256 checksums.
 - Bundled FFmpeg archives use fixed release inputs and verified SHA-256 digests.
-- VLC and mpv are never bundled or downloaded. When a user explicitly chooses external playback, the installed player receives an application-owned playlist of local clip paths.
+- VLC and mpv are never bundled or downloaded. When a user explicitly chooses external playback, the installed player receives an application-owned playlist of local clip paths. Linux AppImage library and media-plugin overrides are not inherited by that system player.
 - External playlists use collision-safe create-new filenames, owner-only permissions on Unix, and are removed when the managed player exits; stale files from interrupted sessions are cleaned conservatively.
 
 The preview workflow does not currently produce an SBOM, sign packages, or run dependency audits itself. Signing where supported, an SBOM, automated `pnpm audit` and `cargo audit` checks, and enforced green quality gates are requirements before Pica Pica can publish a stable release. Until those controls are implemented and documented, published builds remain prereleases.

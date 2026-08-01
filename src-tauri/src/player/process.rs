@@ -11,6 +11,31 @@ static PLAYLIST_NONCE: AtomicU64 = AtomicU64::new(1);
 const PLAYER_STARTUP_GRACE: Duration = Duration::from_millis(250);
 const STALE_PLAYLIST_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
+#[cfg(target_os = "linux")]
+const APPIMAGE_EXTERNAL_PLAYER_ENVIRONMENT: &[&str] = &[
+    "APPDIR",
+    "APPIMAGE",
+    "GDK_PIXBUF_MODULEDIR",
+    "GDK_PIXBUF_MODULE_FILE",
+    "GIO_EXTRA_MODULES",
+    "GI_TYPELIB_PATH",
+    "GSETTINGS_SCHEMA_DIR",
+    "GST_PLUGIN_PATH",
+    "GST_PLUGIN_PATH_1_0",
+    "GST_PLUGIN_SCANNER",
+    "GST_PLUGIN_SCANNER_1_0",
+    "GST_PLUGIN_SYSTEM_PATH",
+    "GST_PLUGIN_SYSTEM_PATH_1_0",
+    "GST_PTP_HELPER",
+    "GST_PTP_HELPER_1_0",
+    "GTK_DATA_PREFIX",
+    "GTK_EXE_PREFIX",
+    "GTK_PATH",
+    "LD_LIBRARY_PATH",
+    "QML2_IMPORT_PATH",
+    "QT_PLUGIN_PATH",
+];
+
 pub(super) struct ManagedPlayerProcess {
     pub session_id: u64,
     pub child: Child,
@@ -33,6 +58,7 @@ impl ManagedPlayerProcess {
         };
         let playlist_path = write_playlist(playlist_directory, playlist_paths)?;
         let mut command = player_command(player, executable, &playlist_path, player_start_index);
+        configure_external_player_environment(&mut command);
         configure_background_process(&mut command);
 
         let mut child = match command.spawn() {
@@ -152,6 +178,25 @@ fn player_command(
         }
     }
     command
+}
+
+#[cfg(target_os = "linux")]
+fn configure_external_player_environment(command: &mut Command) {
+    if std::env::var_os("APPDIR").is_some() && std::env::var_os("APPIMAGE").is_some() {
+        remove_linux_appimage_environment(command);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn configure_external_player_environment(_command: &mut Command) {}
+
+#[cfg(target_os = "linux")]
+fn remove_linux_appimage_environment(command: &mut Command) {
+    // AppImage launchers point these variables at bundled libraries and plugins.
+    // A system player must resolve the matching components from its own install.
+    for &variable in APPIMAGE_EXTERNAL_PLAYER_ENVIRONMENT {
+        command.env_remove(variable);
+    }
 }
 
 fn configure_background_process(command: &mut Command) {
@@ -354,5 +399,24 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(!arguments.contains(&"--ignore-config".to_owned()));
         assert!(arguments.contains(&"--no-one-instance".to_owned()));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn external_players_do_not_inherit_the_appimage_runtime() {
+        let mut command = Command::new("mpv");
+        for &variable in APPIMAGE_EXTERNAL_PLAYER_ENVIRONMENT {
+            command.env(variable, "/tmp/.mount_PicaPica/usr/lib");
+        }
+
+        remove_linux_appimage_environment(&mut command);
+
+        for &variable in APPIMAGE_EXTERNAL_PLAYER_ENVIRONMENT {
+            let value = command
+                .get_envs()
+                .find(|(name, _)| name == std::ffi::OsStr::new(variable))
+                .map(|(_, value)| value);
+            assert_eq!(value, Some(None), "{variable} should be removed");
+        }
     }
 }

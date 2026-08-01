@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Spinner } from "@/components/ui/spinner";
 import { useLibrary } from "@/features/library/LibraryProvider";
+import { usePerformanceMode } from "@/features/performance/PerformanceModeProvider";
 import { MetadataEditor } from "@/features/metadata/MetadataEditor";
 import { libraryClient } from "@/data/library-client";
 import { pluralizeClips } from "@/lib/utils";
@@ -21,6 +22,7 @@ export function GameDetailPage() {
   const { gameId } = useParams();
   const location = useLocation();
   const { library } = useLibrary();
+  const { enabled: performanceMode } = usePerformanceMode();
   const game = library?.games.find((item) => item.id === gameId);
   const [clips, setClips] = useState<Clip[]>([]);
   const [nextCursor, setNextCursor] = useState<ClipCursor | null>(null);
@@ -82,10 +84,10 @@ export function GameDetailPage() {
     if (!navigationState?.focusPlayer || !selected?.id || focusedNavigationRef.current === location.key) return;
     focusedNavigationRef.current = location.key;
     const frame = window.requestAnimationFrame(() => {
-      document.getElementById("clip-player")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById("clip-player")?.scrollIntoView({ behavior: performanceMode ? "auto" : "smooth", block: "start" });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [location.key, navigationState?.focusPlayer, selected?.id]);
+  }, [location.key, navigationState?.focusPlayer, performanceMode, selected?.id]);
 
   function loadMore(): Promise<Clip[]> {
     if (loadMorePromiseRef.current) return loadMorePromiseRef.current;
@@ -148,7 +150,7 @@ export function GameDetailPage() {
   return (
     <div className="relative -mt-[69px]">
       <section ref={heroRef} className="relative isolate flex min-h-[clamp(42rem,72svh,62rem)] items-end overflow-hidden pt-[69px]">
-        <motion.div className="absolute inset-0 z-0" style={{ opacity: artworkOpacity, scale: artworkScale }}>
+        <motion.div className="absolute inset-0 z-0" style={performanceMode ? undefined : { opacity: artworkOpacity, scale: artworkScale }}>
           <GameArtwork title={game.title} start={game.accentStart} end={game.accentEnd} variant="hero" imageUrl={heroUrl} className="size-full" />
         </motion.div>
         <div className="pointer-events-none absolute inset-0 z-0 bg-[linear-gradient(90deg,rgba(8,9,11,.94)_0%,rgba(8,9,11,.62)_42%,rgba(8,9,11,.12)_72%)]" />
@@ -159,8 +161,8 @@ export function GameDetailPage() {
             <Link to="/library"><ArrowLeft className="size-4" /> Library</Link>
           </Button>
         </div>
-        <motion.div style={{ y: contentY }} className="relative z-10 mx-auto w-full max-w-[3200px] px-5 pb-20 pt-32 sm:px-8 lg:px-10 lg:pb-24">
-          <motion.div initial={{ opacity: 0, y: 25 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }} className="max-w-3xl">
+        <motion.div style={performanceMode ? undefined : { y: contentY }} className="relative z-10 mx-auto w-full max-w-[3200px] px-5 pb-20 pt-32 sm:px-8 lg:px-10 lg:pb-24">
+          <motion.div initial={performanceMode ? false : { opacity: 0, y: 25 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }} className="max-w-3xl">
             <div className="flex flex-wrap items-center gap-2">
               {game.metadataStatus === "unresolved" ? (
                 <Badge className="border-amber-300/25 bg-amber-400/10 text-amber-100"><AlertTriangle className="mr-1.5 size-3" /> Not matched</Badge>
@@ -173,7 +175,7 @@ export function GameDetailPage() {
               {game.description ?? `The “${game.folderName}” folder is ready. Add game details to complete your library.`}
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
-              <Button disabled={!currentClips.length} onClick={() => document.getElementById("all-clips")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+              <Button disabled={!currentClips.length} onClick={() => document.getElementById("all-clips")?.scrollIntoView({ behavior: performanceMode ? "auto" : "smooth", block: "start" })}>
                 <Film className="size-4" /> View {pluralizeClips(game.clipCount)}
               </Button>
               <Button variant="secondary" className="border-white/20 bg-white/[.12] text-white shadow-lg backdrop-blur-md hover:bg-white/[.18]" onClick={() => setEditing(true)}>

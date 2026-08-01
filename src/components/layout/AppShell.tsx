@@ -2,6 +2,7 @@ import { GitFork, Library, Settings } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 import { PicaMark } from "@/components/brand/PicaMark";
 import { Button } from "@/components/ui/button";
+import { PerformanceModeToggle } from "@/features/performance/PerformanceModeToggle";
 import { cn } from "@/lib/utils";
 
 const navItems = [
@@ -45,6 +46,7 @@ export function AppShell() {
             ))}
           </nav>
           <div className="ml-auto flex items-center gap-2">
+            <PerformanceModeToggle />
             <Button variant="ghost" size="icon" aria-label="Project on GitHub" disabled>
               <GitFork className="size-[18px]" />
             </Button>

@@ -74,6 +74,10 @@ The manual `Desktop Preview` GitHub Actions workflow builds two unsigned test pa
 
 Open the repository's **Actions** tab, select **Desktop Preview**, choose **Run workflow**, and download the resulting artifact after both jobs finish. Preview artifacts are retained for seven days.
 
+### Performance mode
+
+The optional **Performance** switch in the top-right application header reduces motion and expensive compositing effects for systems where the Linux WebView renders the library slowly. It removes route and card entrance animations, disables hero parallax, noise, backdrop blur, and smooth scrolling, and limits hover effects to short transform or colour transitions. The switch is off by default, so the existing presentation remains unchanged until it is enabled. Its state is stored only in the local WebView storage.
+
 Tagged versions are also published on the repository's [Releases page](https://github.com/Mortisshadow/pica-pica/releases). Preview releases remain unsigned, so Windows may display a SmartScreen warning. Release packages bundle pinned FFmpeg/ffprobe binaries for probing and thumbnails; VLC and mpv are never downloaded or bundled and must already be installed for external playback. The workflows verify fixed SHA-256 digests before packaging, include provenance records, and ship a `SHA256SUMS.txt` file for the finished installers. The maintainer procedure is documented in [docs/releasing.md](docs/releasing.md).
 
 ### Installing on Linux

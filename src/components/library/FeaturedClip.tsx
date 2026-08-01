@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { libraryClient } from "@/data/library-client";
-import { formatDate, formatDuration } from "@/lib/utils";
+import { usePerformanceMode } from "@/features/performance/PerformanceModeProvider";
+import { cn, formatDate, formatDuration } from "@/lib/utils";
 import type { Clip, Game } from "@/types/library";
 
 interface FeaturedClipProps {
@@ -15,6 +16,7 @@ interface FeaturedClipProps {
 }
 
 export function FeaturedClip({ game, clip }: FeaturedClipProps) {
+  const { enabled: performanceMode } = usePerformanceMode();
   const gamePath = `/games/${game.id}`;
   const heroUrl = libraryClient.assetUrl(game.heroPath);
   const thumbnailUrl = libraryClient.assetUrl(clip.thumbnailPath);
@@ -58,7 +60,12 @@ export function FeaturedClip({ game, clip }: FeaturedClipProps) {
           to={gamePath}
           state={{ clipId: clip.id, focusPlayer: true }}
           aria-label={`Play the newest ${game.title} clip`}
-          className="group/preview relative mx-auto block aspect-video w-full max-w-[clamp(40rem,48vw,64rem)] overflow-hidden rounded-2xl border border-white/15 bg-black shadow-[0_24px_80px_rgba(0,0,0,.55)] outline-none transition duration-500 hover:-translate-y-1 hover:border-white/30 focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black lg:mx-0 lg:justify-self-end"
+          className={cn(
+            "group/preview relative mx-auto block aspect-video w-full max-w-[clamp(40rem,48vw,64rem)] overflow-hidden rounded-2xl border border-white/15 bg-black shadow-[0_24px_80px_rgba(0,0,0,.55)] outline-none focus-visible:ring-2 focus-visible:ring-white/80 focus-visible:ring-offset-4 focus-visible:ring-offset-black lg:mx-0 lg:justify-self-end",
+            performanceMode
+              ? "transition-transform duration-150 hover:-translate-y-0.5"
+              : "transition duration-500 hover:-translate-y-1 hover:border-white/30",
+          )}
         >
           {thumbnailUrl ? (
             <img
@@ -67,7 +74,7 @@ export function FeaturedClip({ game, clip }: FeaturedClipProps) {
               loading="eager"
               decoding="async"
               fetchPriority="high"
-              className="size-full object-cover transition duration-700 group-hover/preview:scale-[1.02]"
+              className={cn("size-full object-cover", performanceMode ? "transition-transform duration-150 group-hover/preview:scale-[1.005]" : "transition duration-700 group-hover/preview:scale-[1.02]")}
             />
           ) : (
             <GameArtwork
@@ -76,7 +83,7 @@ export function FeaturedClip({ game, clip }: FeaturedClipProps) {
               end={game.accentEnd}
               variant="thumbnail"
               imageUrl={heroUrl}
-              className="size-full transition duration-700 group-hover/preview:scale-[1.02]"
+              className={cn("size-full", performanceMode ? "transition-transform duration-150 group-hover/preview:scale-[1.005]" : "transition duration-700 group-hover/preview:scale-[1.02]")}
             />
           )}
           <div className="absolute inset-0 bg-black/10 transition group-hover/preview:bg-black/25" />

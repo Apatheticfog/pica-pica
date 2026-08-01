@@ -102,11 +102,37 @@ button, a { -webkit-tap-highlight-color: transparent; }
   contain-intrinsic-size: auto 18rem;
 }
 
+html[data-performance-mode="true"] {
+  scroll-behavior: auto;
+}
+
+html[data-performance-mode="true"] .noise {
+  display: none;
+}
+
+html[data-performance-mode="true"] [class*="backdrop-blur"] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html[data-performance-mode="true"] *,
+html[data-performance-mode="true"] *::before,
+html[data-performance-mode="true"] *::after {
+  animation: none !important;
+  transition-duration: 120ms !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  html[data-performance-mode="true"] *,
+  html[data-performance-mode="true"] *::before,
+  html[data-performance-mode="true"] *::after {
     transition-duration: 0.01ms !important;
   }
 }

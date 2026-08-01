@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { libraryClient } from "@/data/library-client";
+import { usePerformanceMode } from "@/features/performance/PerformanceModeProvider";
 import { formatBytes, formatDate, formatDuration } from "@/lib/utils";
 import type { Clip, Game } from "@/types/library";
 
@@ -34,6 +35,7 @@ export function VideoPlayer({
   onLoadMore,
   onSelect,
 }: VideoPlayerProps) {
+  const { enabled: performanceMode } = usePerformanceMode();
   const recentClips = clips.slice(0, 12);
   const showQueue = totalCount > 1;
   const [playerSurfaceHeight, setPlayerSurfaceHeight] = useState<number | null>(null);
@@ -59,7 +61,7 @@ export function VideoPlayer({
   const selectFromGrid = (clip: Clip) => {
     onSelect(clip);
     window.requestAnimationFrame(() => {
-      document.getElementById("clip-player")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById("clip-player")?.scrollIntoView({ behavior: performanceMode ? "auto" : "smooth", block: "start" });
     });
   };
 

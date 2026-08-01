@@ -1,5 +1,6 @@
 import { Play } from "lucide-react";
 import { libraryClient } from "@/data/library-client";
+import { usePerformanceMode } from "@/features/performance/PerformanceModeProvider";
 import { cn, formatBytes, formatDate, formatDuration } from "@/lib/utils";
 import type { Clip, Game } from "@/types/library";
 import { GameArtwork } from "./GameArtwork";
@@ -12,6 +13,7 @@ interface ClipCardProps {
 }
 
 export function ClipCard({ clip, game, active, onSelect }: ClipCardProps) {
+  const { enabled: performanceMode } = usePerformanceMode();
   const thumbnail = libraryClient.assetUrl(clip.thumbnailPath);
   return (
     <button
@@ -20,13 +22,23 @@ export function ClipCard({ clip, game, active, onSelect }: ClipCardProps) {
       aria-label={`Play ${clip.fileName}`}
       aria-pressed={active}
       className={cn(
-        "clip-card group w-full overflow-hidden rounded-2xl border p-0 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-primary/70",
+        "clip-card group w-full overflow-hidden rounded-2xl border p-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-primary/70",
+        performanceMode ? "transition-colors duration-100" : "transition",
         active ? "border-primary/35 bg-primary/[.07]" : "border-transparent bg-white/[.025] hover:border-white/10 hover:bg-white/[.055]",
       )}
     >
       <div className="relative aspect-video w-full overflow-hidden bg-black">
         {thumbnail ? (
-          <img src={thumbnail} alt="" loading="lazy" decoding="async" className="absolute inset-0 size-full object-cover transition duration-500 group-hover:scale-[1.03]" />
+          <img
+            src={thumbnail}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className={cn(
+              "absolute inset-0 size-full object-cover",
+              performanceMode ? "transition-transform duration-150 group-hover:scale-[1.01]" : "transition duration-500 group-hover:scale-[1.03]",
+            )}
+          />
         ) : (
           <GameArtwork title={game.title} start={game.accentStart} end={game.accentEnd} variant="thumbnail" className="size-full" />
         )}

@@ -414,7 +414,7 @@ mod tests {
         for &variable in APPIMAGE_EXTERNAL_PLAYER_ENVIRONMENT {
             let value = command
                 .get_envs()
-                .find(|(name, _)| name == std::ffi::OsStr::new(variable))
+                .find(|(name, _)| *name == std::ffi::OsStr::new(variable))
                 .map(|(_, value)| value);
             assert_eq!(value, Some(None), "{variable} should be removed");
         }
